@@ -59,19 +59,19 @@ endfunction()
 
 if(AMALGAMATION_BUILD)
 
-  add_library(duckdb SHARED "${PROJECT_SOURCE_DIR}/src/amalgamation/duckdb.cpp")
+  add_library(trexsql SHARED "${PROJECT_SOURCE_DIR}/src/amalgamation/duckdb.cpp")
   set_target_properties(
-    duckdb PROPERTIES VERSION ${DUCKDB_VERSION_NUMBER}
+    trexsql PROPERTIES VERSION ${DUCKDB_VERSION_NUMBER}
                       SOVERSION ${DUCKDB_MAJOR_VERSION}.${DUCKDB_MINOR_VERSION})
-  target_link_libraries(duckdb ${DUCKDB_SYSTEM_LIBS})
-  link_threads(duckdb PUBLIC)
-  link_extension_libraries(duckdb PRIVATE)
+  target_link_libraries(trexsql ${DUCKDB_SYSTEM_LIBS})
+  link_threads(trexsql PUBLIC)
+  link_extension_libraries(trexsql PRIVATE)
 
-  add_library(duckdb_static STATIC
+  add_library(trexsql_static STATIC
               "${PROJECT_SOURCE_DIR}/src/amalgamation/duckdb.cpp")
-  target_link_libraries(duckdb_static ${DUCKDB_SYSTEM_LIBS})
-  link_threads(duckdb_static PUBLIC)
-  link_extension_libraries(duckdb_static PUBLIC)
+  target_link_libraries(trexsql_static ${DUCKDB_SYSTEM_LIBS})
+  link_threads(trexsql_static PUBLIC)
+  link_extension_libraries(trexsql_static PUBLIC)
 
   install(FILES "${PROJECT_SOURCE_DIR}/src/amalgamation/duckdb.hpp"
                 "${PROJECT_SOURCE_DIR}/src/include/duckdb.h"
@@ -112,9 +112,9 @@ else()
       duckdb_yyjson
       duckdb_zstd)
 
-  add_library(duckdb SHARED ${ALL_OBJECT_FILES})
+  add_library(trexsql SHARED ${ALL_OBJECT_FILES})
   set_target_properties(
-    duckdb PROPERTIES VERSION ${DUCKDB_VERSION_NUMBER}
+    trexsql PROPERTIES VERSION ${DUCKDB_VERSION_NUMBER}
                       SOVERSION ${DUCKDB_MAJOR_VERSION}.${DUCKDB_MINOR_VERSION})
 
   if(WIN32 AND NOT MINGW)
@@ -134,24 +134,24 @@ else()
     set(CMAKE_RC_FLAGS
         "${CMAKE_RC_FLAGS} -D DUCKDB_DEV_ITERATION=\"${RC_DEV_ITERATION}\"")
 
-    target_sources(duckdb PRIVATE version.rc)
+    target_sources(trexsql PRIVATE version.rc)
   endif()
 
-  target_link_libraries(duckdb PUBLIC ${DUCKDB_LINK_LIBS})
-  link_threads(duckdb PUBLIC)
-  link_extension_libraries(duckdb PRIVATE)
+  target_link_libraries(trexsql PUBLIC ${DUCKDB_LINK_LIBS})
+  link_threads(trexsql PUBLIC)
+  link_extension_libraries(trexsql PRIVATE)
 
-  add_library(duckdb_static STATIC ${ALL_OBJECT_FILES})
-  target_link_libraries(duckdb_static PUBLIC ${DUCKDB_LINK_LIBS})
-  link_threads(duckdb_static PUBLIC)
-  link_extension_libraries(duckdb_static PUBLIC)
+  add_library(trexsql_static STATIC ${ALL_OBJECT_FILES})
+  target_link_libraries(trexsql_static PUBLIC ${DUCKDB_LINK_LIBS})
+  link_threads(trexsql_static PUBLIC)
+  link_extension_libraries(trexsql_static PUBLIC)
 
   target_include_directories(
-    duckdb PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    trexsql PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
                   $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 
   target_include_directories(
-    duckdb_static PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    trexsql_static PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
                          $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 
   install(
@@ -167,7 +167,7 @@ else()
 endif()
 
 install(
-  TARGETS duckdb duckdb_static
+  TARGETS trexsql trexsql_static
   EXPORT "${DUCKDB_EXPORT_SET}"
   LIBRARY DESTINATION "${INSTALL_LIB_DIR}"
   ARCHIVE DESTINATION "${INSTALL_LIB_DIR}"

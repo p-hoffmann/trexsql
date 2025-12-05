@@ -91,6 +91,11 @@ add_library(duckdb_generated_extension_loader OBJECT ${GENERATED_CPP_FILE})
 set(generated_loader_obj_files
     $<TARGET_OBJECTS:duckdb_generated_extension_loader>)
 
+# Custom signing keys generated file
+set(CUSTOM_SIGNING_KEYS_CPP "${PROJECT_BINARY_DIR}/generated/custom_signing_keys.cpp")
+add_library(duckdb_custom_signing_keys OBJECT ${CUSTOM_SIGNING_KEYS_CPP})
+set(custom_signing_keys_obj_files $<TARGET_OBJECTS:duckdb_custom_signing_keys>)
+
 # include generated includes
 include_directories("${PROJECT_BINARY_DIR}/codegen/include/")
 
@@ -102,6 +107,7 @@ add_library(
 set(ALL_OBJECT_FILES
     ${ALL_OBJECT_FILES} $<TARGET_OBJECTS:duckdb_main_extension>
     ${ALL_OBJECT_FILES} ${generated_loader_obj_files}
+    ${ALL_OBJECT_FILES} ${custom_signing_keys_obj_files}
     PARENT_SCOPE)
 
 add_extension_definitions(duckdb_main_extension)

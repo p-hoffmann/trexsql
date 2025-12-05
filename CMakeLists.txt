@@ -20,7 +20,7 @@ if(POLICY CMP0063)
   cmake_policy(SET CMP0063 NEW)
 endif()
 
-project(DuckDB)
+project(TrexSQL)
 
 find_package(Threads REQUIRED)
 
@@ -63,12 +63,12 @@ set(INSTALL_INCLUDE_DIR
 if(WIN32 AND NOT CYGWIN)
   set(DEF_INSTALL_CMAKE_DIR cmake)
 else()
-  set(DEF_INSTALL_CMAKE_DIR ${INSTALL_LIB_DIR}/cmake/DuckDB)
+  set(DEF_INSTALL_CMAKE_DIR ${INSTALL_LIB_DIR}/cmake/TrexSQL)
 endif()
 set(INSTALL_CMAKE_DIR
     ${DEF_INSTALL_CMAKE_DIR}
     CACHE PATH "Installation directory for CMake files")
-set(DUCKDB_EXPORT_SET "DuckDBExports")
+set(DUCKDB_EXPORT_SET "TrexSQLExports")
 
 # This option allows --gc-sections flag during extension linking to discard any unused functions or data
 if (EXTENSION_STATIC_BUILD AND "${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
@@ -423,6 +423,11 @@ option(FORCE_QUERY_LOG "If enabled, all queries will be logged to the specified 
 option(BUILD_SHELL "Build the DuckDB Shell and SQLite API Wrappers" TRUE)
 option(DISABLE_THREADS "Disable support for multi-threading" FALSE)
 option(DISABLE_EXTENSION_LOAD "Disable support for loading and installing extensions" FALSE)
+
+# Custom extension signing keys
+# Semicolon-separated list of PEM public key file paths to embed as trusted signing keys
+set(DUCKDB_CUSTOM_SIGNING_KEYS "" CACHE STRING "Paths to custom public key files for extension signing")
+
 option(DISABLE_STR_INLINE "Debug setting: disable inlining of strings" FALSE)
 option(DISABLE_MEMORY_SAFETY "Debug setting: disable memory access checks at runtime" FALSE)
 option(DISABLE_ASSERTIONS "Debug setting: disable assertions" FALSE)
@@ -1310,6 +1315,69 @@ foreach(EXT_NAME IN LISTS DUCKDB_EXTENSION_NAMES)
     list(APPEND TEST_WITH_LOADABLE_EXTENSION ${EXT_NAME})
   endif()
 endforeach()
+
+# Process custom extension signing keys
+set(DUCKDB_CUSTOM_KEYS_CONTENT "")
+set(DUCKDB_CUSTOM_KEY_COUNT 0)
+
+if(DUCKDB_CUSTOM_SIGNING_KEYS)
+  message(STATUS "Processing custom extension signing keys...")
+
+  # Split semicolon-separated list
+  string(REPLACE ";" "\n" KEY_FILES_LIST "${DUCKDB_CUSTOM_SIGNING_KEYS}")
+  string(REPLACE "\n" ";" KEY_FILES "${KEY_FILES_LIST}")
+
+  foreach(KEY_FILE IN LISTS KEY_FILES)
+    # Skip empty entries
+    if(NOT KEY_FILE)
+      continue()
+    endif()
+
+    # Check if file exists
+    if(NOT EXISTS "${KEY_FILE}")
+      message(FATAL_ERROR "DUCKDB_CUSTOM_SIGNING_KEYS: File not found: ${KEY_FILE}")
+    endif()
+
+    # Read and validate PEM format
+    file(READ "${KEY_FILE}" KEY_CONTENT)
+    string(FIND "${KEY_CONTENT}" "-----BEGIN PUBLIC KEY-----" PEM_START)
+    if(PEM_START EQUAL -1)
+      message(FATAL_ERROR "DUCKDB_CUSTOM_SIGNING_KEYS: Invalid PEM format in ${KEY_FILE}\n"
+                          "Expected: -----BEGIN PUBLIC KEY-----")
+    endif()
+
+    # Escape for C++ raw string literal (R"(...)")
+    # Raw strings don't need escaping, but we need to ensure no )") in content
+    string(FIND "${KEY_CONTENT}" ")\"" HAS_CLOSING)
+    if(NOT HAS_CLOSING EQUAL -1)
+      message(FATAL_ERROR "DUCKDB_CUSTOM_SIGNING_KEYS: Key file ${KEY_FILE} contains invalid sequence")
+    endif()
+
+    # Add to content
+    string(APPEND DUCKDB_CUSTOM_KEYS_CONTENT "    R\"(${KEY_CONTENT})\",\n")
+    math(EXPR DUCKDB_CUSTOM_KEY_COUNT "${DUCKDB_CUSTOM_KEY_COUNT} + 1")
+
+    message(STATUS "  Added custom signing key: ${KEY_FILE}")
+  endforeach()
+
+  message(STATUS "Total custom signing keys: ${DUCKDB_CUSTOM_KEY_COUNT}")
+endif()
+
+# Generate custom_signing_keys.cpp
+set(CUSTOM_KEYS_CPP_CONTENT
+"// AUTO-GENERATED FILE - DO NOT EDIT
+// Generated from DUCKDB_CUSTOM_SIGNING_KEYS configuration
+
+namespace duckdb {
+
+const char *const custom_public_keys[] = {
+${DUCKDB_CUSTOM_KEYS_CONTENT}    nullptr
+};
+
+} // namespace duckdb
+")
+
+file(WRITE "${CMAKE_BINARY_DIR}/generated/custom_signing_keys.cpp" "${CUSTOM_KEYS_CPP_CONTENT}")
 
 if (BUILD_MAIN_DUCKDB_LIBRARY)
   add_subdirectory(src)

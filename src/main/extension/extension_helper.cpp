@@ -970,6 +970,9 @@ k9EbTcRNnxCvab/oqjvgyRuSmIES00v8jZOGQZQUpw02RN6yCBeX2i8GPsGjj/T9
 -----END PUBLIC KEY-----
 )", nullptr};
 
+// Custom public keys - defined in generated/custom_signing_keys.cpp (built from DUCKDB_CUSTOM_SIGNING_KEYS)
+extern const char *const custom_public_keys[];
+
 const vector<string> ExtensionHelper::GetPublicKeys(bool allow_community_extensions) {
 	vector<string> keys;
 	for (idx_t i = 0; public_keys[i]; i++) {
@@ -979,6 +982,10 @@ const vector<string> ExtensionHelper::GetPublicKeys(bool allow_community_extensi
 		for (idx_t i = 0; community_public_keys[i]; i++) {
 			keys.emplace_back(community_public_keys[i]);
 		}
+	}
+	// Add custom signing keys (always included if present)
+	for (idx_t i = 0; custom_public_keys[i]; i++) {
+		keys.emplace_back(custom_public_keys[i]);
 	}
 	return keys;
 }
