@@ -7,7 +7,9 @@ add_library(
   extension_loader.cpp
   extension_repository_manager.cpp
   external_extension_provider.cpp
-  linked_extension_registry.cpp)
+  linked_extension_registry.cpp
+  # custom_public_keys[], generated from DUCKDB_CUSTOM_SIGNING_KEYS
+  ${PROJECT_BINARY_DIR}/generated/custom_signing_keys.cpp)
 
 # Escape ; in the string to ensure this is treated as a plain string instead of
 # a list
@@ -26,7 +28,7 @@ set(ALL_OBJECT_FILES
 if(ENABLE_EXTENSION_LOAD)
   add_library(duckdb_loadable_extensions STATIC extension_install_dynamic.cpp
                                                 extension_load_dynamic.cpp)
-  target_link_libraries(duckdb_loadable_extensions duckdb_static)
+  target_link_libraries(duckdb_loadable_extensions trexsql_static)
   duckdb_make_native_lto_archive(duckdb_loadable_extensions)
   install(
     TARGETS duckdb_loadable_extensions

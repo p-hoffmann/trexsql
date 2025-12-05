@@ -33,7 +33,7 @@ target_include_directories(
   benchmark_runner
   PRIVATE ${PROJECT_SOURCE_DIR}/test/extension/debug_fs/include)
 
-target_link_libraries(benchmark_runner duckdb_static imdb test_helpers)
+target_link_libraries(benchmark_runner trexsql_static imdb test_helpers)
 link_extension_libraries(benchmark_runner "")
 
 duckdb_codesign_for_debugging(benchmark_runner)

@@ -6,4 +6,4 @@ configure_file(local_extension_repository.cpp.in
                ${CMAKE_CURRENT_BINARY_DIR}/local_extension_repository.cpp @ONLY)
 add_library(duckdb_local_extension_repository STATIC
             ${CMAKE_CURRENT_BINARY_DIR}/local_extension_repository.cpp)
-target_link_libraries(duckdb_local_extension_repository duckdb_static)
+target_link_libraries(duckdb_local_extension_repository trexsql_static)

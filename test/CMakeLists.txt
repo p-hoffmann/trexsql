@@ -15,13 +15,13 @@ if(TARGET parquet_extension)
   # before main, once by the program calling duckdb_register_static_extensions
   # itself. Both are run by the Static extension link step in Main.yml.
   add_executable(static_link_smoke static_link/static_link_smoke.c)
-  target_link_libraries(static_link_smoke duckdb_static)
+  target_link_libraries(static_link_smoke trexsql_static)
   duckdb_link_extensions(static_link_smoke parquet)
 
   add_executable(static_link_explicit_smoke static_link/static_link_smoke.c)
   target_compile_definitions(static_link_explicit_smoke
                              PRIVATE STATIC_LINK_EXPLICIT)
-  target_link_libraries(static_link_explicit_smoke duckdb_static)
+  target_link_libraries(static_link_explicit_smoke trexsql_static)
   duckdb_link_extensions(static_link_explicit_smoke EXPLICIT parquet)
 endif()
 
@@ -102,12 +102,12 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   target_compile_options(unittest PRIVATE -Wno-error=maybe-uninitialized)
 endif()
 
-if(TARGET duckdb AND NOT WIN32)
+if(TARGET trexsql AND NOT WIN32)
   # Some tests reference internal third-party symbols (e.g. re2/mbedtls) that
   # are linked into duckdb but not exported from the shared library.
   target_link_libraries(
     unittest
-    duckdb
+    trexsql
     test_helpers
     duckdb_re2
     duckdb_mbedtls
@@ -115,7 +115,7 @@ if(TARGET duckdb AND NOT WIN32)
     duckdb_cpp_api)
 else()
   # On Windows, tests require internal DuckDB symbols that are not DLL-exported.
-  target_link_libraries(unittest duckdb_static test_helpers duckdb_cpp_api)
+  target_link_libraries(unittest trexsql_static test_helpers duckdb_cpp_api)
   link_extension_libraries(unittest "")
 endif()
 

@@ -80,33 +80,33 @@ foreach(LINK_LIB ${DUCKDB_LINK_LIBS})
   list(APPEND LINK_OBJECTS $<TARGET_OBJECTS:${LINK_LIB}>)
 endforeach(LINK_LIB)
 
-add_library(duckdb_static STATIC ${ALL_OBJECT_FILES} ${LINK_OBJECTS})
-target_link_libraries(duckdb_static PUBLIC ${DUCKDB_SYSTEM_LIBS})
-link_threads(duckdb_static PUBLIC)
-duckdb_make_native_lto_archive(duckdb_static)
+add_library(trexsql_static STATIC ${ALL_OBJECT_FILES} ${LINK_OBJECTS})
+target_link_libraries(trexsql_static PUBLIC ${DUCKDB_SYSTEM_LIBS})
+link_threads(trexsql_static PUBLIC)
+duckdb_make_native_lto_archive(trexsql_static)
 
 #
 # FIXME file(COPY ${CMAKE_SOURCE_DIR}/libduckdb_static.a  DESTINATION
-# ${CMAKE_CURRENT_BINARY_DIR}) add_library(duckdb_static STATIC IMPORTED GLOBAL)
-# set_property(TARGET duckdb_static PROPERTY IMPORTED_LOCATION
+# ${CMAKE_CURRENT_BINARY_DIR}) add_library(trexsql_static STATIC IMPORTED GLOBAL)
+# set_property(TARGET trexsql_static PROPERTY IMPORTED_LOCATION
 # ${CMAKE_CURRENT_BINARY_DIR}/libduckdb_static.a)
 #
 
 if(NATIVE_LTO_STATIC_LIBRARIES)
-  add_library(duckdb SHARED)
-  target_link_libraries(duckdb PRIVATE -Wl,--whole-archive duckdb_static
+  add_library(trexsql SHARED)
+  target_link_libraries(trexsql PRIVATE -Wl,--whole-archive trexsql_static
                                        -Wl,--no-whole-archive)
 else()
-  add_library(duckdb SHARED ${ALL_OBJECT_FILES} ${LINK_OBJECTS})
+  add_library(trexsql SHARED ${ALL_OBJECT_FILES} ${LINK_OBJECTS})
 endif()
-target_link_libraries(duckdb PUBLIC ${DUCKDB_SYSTEM_LIBS})
-link_extension_libraries(duckdb PRIVATE)
+target_link_libraries(trexsql PUBLIC ${DUCKDB_SYSTEM_LIBS})
+link_extension_libraries(trexsql PRIVATE)
 
-link_threads(duckdb PUBLIC)
+link_threads(trexsql PUBLIC)
 
 if(SET_DUCKDB_LIBRARY_VERSION)
   set_target_properties(
-    duckdb PROPERTIES VERSION ${DUCKDB_VERSION_NUMBER}
+    trexsql PROPERTIES VERSION ${DUCKDB_VERSION_NUMBER}
                       SOVERSION ${DUCKDB_MAJOR_VERSION}.${DUCKDB_MINOR_VERSION})
 
 endif()
@@ -128,7 +128,7 @@ if(WIN32 AND NOT MINGW)
   set(CMAKE_RC_FLAGS
       "${CMAKE_RC_FLAGS} -D DUCKDB_DEV_ITERATION=\"${RC_DEV_ITERATION}\"")
 
-  target_sources(duckdb PRIVATE version.rc)
+  target_sources(trexsql PRIVATE version.rc)
 endif()
 
 install(
@@ -145,7 +145,7 @@ install(
   DESTINATION "${INSTALL_INCLUDE_DIR}")
 
 install(
-  TARGETS duckdb duckdb_static
+  TARGETS trexsql trexsql_static
   EXPORT "${DUCKDB_EXPORT_SET}"
   LIBRARY DESTINATION "${INSTALL_LIB_DIR}"
   ARCHIVE DESTINATION "${INSTALL_LIB_DIR}"

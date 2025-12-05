@@ -4,7 +4,7 @@ if(NOT CLANG_TIDY)
   find_package(Python3)
 endif()
 
-project(DuckDB)
+project(TrexSQL)
 
 find_package(Threads REQUIRED)
 
@@ -174,12 +174,12 @@ set(INSTALL_INCLUDE_DIR
 if(WIN32 AND NOT CYGWIN)
   set(DEF_INSTALL_CMAKE_DIR cmake)
 else()
-  set(DEF_INSTALL_CMAKE_DIR ${INSTALL_LIB_DIR}/cmake/DuckDB)
+  set(DEF_INSTALL_CMAKE_DIR ${INSTALL_LIB_DIR}/cmake/TrexSQL)
 endif()
 set(INSTALL_CMAKE_DIR
     ${DEF_INSTALL_CMAKE_DIR}
     CACHE PATH "Installation directory for CMake files")
-set(DUCKDB_EXPORT_SET "DuckDBExports")
+set(DUCKDB_EXPORT_SET "TrexSQLExports")
 
 option(
   EXTENSION_STATIC_BUILD
@@ -629,6 +629,12 @@ set(DUCKDB_CAPABILITIES
       STRING
       "Capabilities the DuckDB targets link: 'httplib', 'loadable_extensions', 'local_extension_repository' or 'none' (empty: all of them)"
 )
+# Custom extension signing keys: semicolon-separated PEM public key file paths,
+# or inline PEM text, embedded as trusted signing keys
+set(DUCKDB_CUSTOM_SIGNING_KEYS
+    ""
+    CACHE STRING "Custom public keys (PEM file paths or PEM text) for extension signing")
+
 option(DISABLE_STR_INLINE "Debug setting: disable inlining of strings" FALSE)
 option(DISABLE_MEMORY_SAFETY
        "Debug setting: disable memory access checks at runtime" FALSE)
@@ -1282,6 +1288,91 @@ if(BUILD_MAIN_DUCKDB_LIBRARY
   add_third_party(jemalloc)
 endif()
 
+# Process custom extension signing keys
+set(DUCKDB_CUSTOM_KEYS_CONTENT "")
+set(DUCKDB_CUSTOM_KEY_COUNT 0)
+set(_PEM_BEGIN "-----BEGIN PUBLIC KEY-----")
+set(_PEM_END "-----END PUBLIC KEY-----")
+
+function(_trex_add_custom_key KEY_CONTENT KEY_SOURCE)
+  string(FIND "${KEY_CONTENT}" "${_PEM_BEGIN}" PEM_START)
+  if(PEM_START EQUAL -1)
+    message(FATAL_ERROR "DUCKDB_CUSTOM_SIGNING_KEYS: Invalid PEM format in ${KEY_SOURCE}\n"
+                        "Expected: ${_PEM_BEGIN}")
+  endif()
+  # Keys are emitted as C++ raw string literals R"(...)"
+  string(FIND "${KEY_CONTENT}" ")\"" HAS_CLOSING)
+  if(NOT HAS_CLOSING EQUAL -1)
+    message(FATAL_ERROR "DUCKDB_CUSTOM_SIGNING_KEYS: ${KEY_SOURCE} contains invalid sequence")
+  endif()
+  string(STRIP "${KEY_CONTENT}" KEY_CONTENT)
+  set(DUCKDB_CUSTOM_KEYS_CONTENT "${DUCKDB_CUSTOM_KEYS_CONTENT}    R\"(${KEY_CONTENT}\n)\",\n" PARENT_SCOPE)
+  math(EXPR _COUNT "${DUCKDB_CUSTOM_KEY_COUNT} + 1")
+  set(DUCKDB_CUSTOM_KEY_COUNT ${_COUNT} PARENT_SCOPE)
+  message(STATUS "  Added custom signing key: ${KEY_SOURCE}")
+endfunction()
+
+if(DUCKDB_CUSTOM_SIGNING_KEYS)
+  message(STATUS "Processing custom extension signing keys...")
+  string(FIND "${DUCKDB_CUSTOM_SIGNING_KEYS}" "${_PEM_BEGIN}" _INLINE_PEM)
+  if(NOT _INLINE_PEM EQUAL -1)
+    # Inline PEM text: CMake cannot keep newlines in the cache, so write each key
+    # to a file and replace the cache entry with those paths for reconfigures
+    set(_REMAINING "${DUCKDB_CUSTOM_SIGNING_KEYS}")
+    set(_INLINE_INDEX 0)
+    set(_INLINE_KEY_FILES "")
+    while(TRUE)
+      string(FIND "${_REMAINING}" "${_PEM_END}" _END_POS)
+      if(_END_POS EQUAL -1)
+        break()
+      endif()
+      string(LENGTH "${_PEM_END}" _END_LEN)
+      math(EXPR _CUT "${_END_POS} + ${_END_LEN}")
+      string(SUBSTRING "${_REMAINING}" 0 ${_CUT} _KEY)
+      string(SUBSTRING "${_REMAINING}" ${_CUT} -1 _REMAINING)
+      math(EXPR _INLINE_INDEX "${_INLINE_INDEX} + 1")
+      string(STRIP "${_KEY}" _KEY)
+      set(_KEY_FILE "${PROJECT_BINARY_DIR}/generated/custom_signing_key_${_INLINE_INDEX}.pub")
+      file(WRITE "${_KEY_FILE}" "${_KEY}\n")
+      list(APPEND _INLINE_KEY_FILES "${_KEY_FILE}")
+    endwhile()
+    if(_INLINE_INDEX EQUAL 0)
+      message(FATAL_ERROR "DUCKDB_CUSTOM_SIGNING_KEYS: inline PEM without '${_PEM_END}' "
+                          "(was a multi-line value truncated? pass a file path instead)")
+    endif()
+    set(DUCKDB_CUSTOM_SIGNING_KEYS "${_INLINE_KEY_FILES}"
+        CACHE STRING "Custom public keys (PEM file paths or PEM text) for extension signing" FORCE)
+  endif()
+  foreach(KEY_FILE IN LISTS DUCKDB_CUSTOM_SIGNING_KEYS)
+    if(NOT KEY_FILE)
+      continue()
+    endif()
+    if(NOT EXISTS "${KEY_FILE}")
+      message(FATAL_ERROR "DUCKDB_CUSTOM_SIGNING_KEYS: File not found: ${KEY_FILE}")
+    endif()
+    file(READ "${KEY_FILE}" _KEY)
+    _trex_add_custom_key("${_KEY}" "${KEY_FILE}")
+  endforeach()
+  message(STATUS "Total custom signing keys: ${DUCKDB_CUSTOM_KEY_COUNT}")
+endif()
+
+set(CUSTOM_KEYS_CPP_CONTENT
+"// AUTO-GENERATED FILE - DO NOT EDIT
+// Generated from DUCKDB_CUSTOM_SIGNING_KEYS configuration
+
+namespace duckdb {
+
+extern const char *const custom_public_keys[] = {
+${DUCKDB_CUSTOM_KEYS_CONTENT}    nullptr
+};
+
+} // namespace duckdb
+")
+
+# file(CONFIGURE) only rewrites on change, so unchanged keys do not force a rebuild
+file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/generated/custom_signing_keys.cpp"
+     CONTENT "${CUSTOM_KEYS_CPP_CONTENT}")
+
 if(PREBUILT_BINARY)
   get_filename_component(PREBUILT_BINARY_PATH "${PREBUILT_BINARY}" ABSOLUTE)
   if(NOT EXISTS "${PREBUILT_BINARY_PATH}")
@@ -1293,11 +1384,11 @@ if(PREBUILT_BINARY)
 
   message(
     STATUS "Using pre-built static library from file ${PREBUILT_BINARY_PATH}")
-  add_library(duckdb_static STATIC IMPORTED GLOBAL)
-  set_property(TARGET duckdb_static PROPERTY IMPORTED_LOCATION
+  add_library(trexsql_static STATIC IMPORTED GLOBAL)
+  set_property(TARGET trexsql_static PROPERTY IMPORTED_LOCATION
                                              "${PREBUILT_BINARY_PATH}")
-  target_link_libraries(duckdb_static INTERFACE ${DUCKDB_SYSTEM_LIBS})
-  link_threads(duckdb_static INTERFACE)
+  target_link_libraries(trexsql_static INTERFACE ${DUCKDB_SYSTEM_LIBS})
+  link_threads(trexsql_static INTERFACE)
 
   if(BUILD_SHELL AND NOT SUN)
     get_filename_component(_DUCKDB_PREBUILT_LIBRARY_DIRECTORY
@@ -1340,7 +1431,7 @@ if(PREBUILT_BINARY)
         TARGET ${DUCKDB_PREBUILT_CAPABILITY}
         PROPERTY IMPORTED_LOCATION "${_DUCKDB_PREBUILT_CAPABILITY_PATH}")
       target_link_libraries(${DUCKDB_PREBUILT_CAPABILITY}
-                            INTERFACE duckdb_static)
+                            INTERFACE trexsql_static)
       message(
         STATUS
           "Using pre-built capability from file ${_DUCKDB_PREBUILT_CAPABILITY_PATH}"
@@ -1368,7 +1459,7 @@ if(PREBUILT_BINARY)
     if(NOT TARGET ${DUCKDB_PREBUILT_LINK_LIBRARY})
       add_library(${DUCKDB_PREBUILT_LINK_LIBRARY} INTERFACE IMPORTED GLOBAL)
       target_link_libraries(${DUCKDB_PREBUILT_LINK_LIBRARY}
-                            INTERFACE duckdb_static)
+                            INTERFACE trexsql_static)
     endif()
   endforeach()
 

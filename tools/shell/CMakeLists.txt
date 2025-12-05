@@ -44,7 +44,7 @@ endif()
 
 add_executable(shell shell_main.cpp)
 
-target_link_libraries(shell duckdb_shell duckdb_static
+target_link_libraries(shell duckdb_shell trexsql_static
                       ${DUCKDB_EXTRA_LINK_FLAGS})
 link_threads(shell "")
 if(STATIC_LIBCPP)

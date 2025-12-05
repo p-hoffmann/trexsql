@@ -8,4 +8,4 @@ include_directories(../../third_party/fmt/include)
 link_directories(../../build/release/src)
 
 add_executable(example main.cpp)
-target_link_libraries(example duckdb)
+target_link_libraries(example trexsql)

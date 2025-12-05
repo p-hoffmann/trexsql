@@ -16,7 +16,7 @@ if(ENABLE_BUILTIN_HTTPLIB)
   add_library(duckdb_httplib STATIC http_client_httplib.cpp)
   target_include_directories(duckdb_httplib
                              PRIVATE ${PROJECT_SOURCE_DIR}/third_party/httplib)
-  target_link_libraries(duckdb_httplib duckdb_static)
+  target_link_libraries(duckdb_httplib trexsql_static)
   duckdb_make_native_lto_archive(duckdb_httplib)
   install(
     TARGETS duckdb_httplib
