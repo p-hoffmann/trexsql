@@ -1370,7 +1370,7 @@ set(CUSTOM_KEYS_CPP_CONTENT
 
 namespace duckdb {
 
-const char *const custom_public_keys[] = {
+extern const char *const custom_public_keys[] = {
 ${DUCKDB_CUSTOM_KEYS_CONTENT}    nullptr
 };
 
