@@ -53,10 +53,10 @@ add_executable(unittest unittest.cpp ${ALL_OBJECT_FILES})
 if(NOT WIN32
    AND NOT SUN
    AND NOT ZOS)
-  target_link_libraries(unittest duckdb test_helpers)
+  target_link_libraries(unittest trexsql test_helpers)
   if(${BUILD_TPCE})
     target_link_libraries(unittest tpce)
   endif()
 else()
-  target_link_libraries(unittest duckdb_static test_helpers)
+  target_link_libraries(unittest trexsql_static test_helpers)
 endif()

@@ -9,4 +9,4 @@ include_directories(../../src/include)
 link_directories(../../build/debug/src)
 
 add_executable(example main.cpp)
-target_link_libraries(example duckdb)
+target_link_libraries(example trexsql)
