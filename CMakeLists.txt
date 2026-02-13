@@ -915,22 +915,22 @@ function(build_loadable_extension_directory NAME ABI_TYPE OUTPUT_DIRECTORY EXTEN
         set_target_properties(${TARGET_NAME} PROPERTIES CXX_VISIBILITY_PRESET hidden)
         # Note that on MacOS we need to use the -exported_symbol whitelist feature due to a lack of -exclude-libs flag in mac's ld variant
         set(WHITELIST "-Wl,-exported_symbol,_${NAME}_duckdb_cpp_init")
-        target_link_libraries(${TARGET_NAME} duckdb_static ${DUCKDB_EXTRA_LINK_FLAGS} -Wl,-dead_strip ${WHITELIST})
+        target_link_libraries(${TARGET_NAME} trexsql_static ${DUCKDB_EXTRA_LINK_FLAGS} -Wl,-dead_strip ${WHITELIST})
       elseif (ZOS)
-        target_link_libraries(${TARGET_NAME} duckdb_static ${DUCKDB_EXTRA_LINK_FLAGS})
+        target_link_libraries(${TARGET_NAME} trexsql_static ${DUCKDB_EXTRA_LINK_FLAGS})
       else()
         # For GNU we rely on fvisibility=hidden to hide the extension symbols and use -exclude-libs to hide the duckdb symbols
         set_target_properties(${TARGET_NAME} PROPERTIES CXX_VISIBILITY_PRESET hidden)
-        target_link_libraries(${TARGET_NAME} duckdb_static ${DUCKDB_EXTRA_LINK_FLAGS} -Wl,--gc-sections -Wl,--exclude-libs,ALL)
+        target_link_libraries(${TARGET_NAME} trexsql_static ${DUCKDB_EXTRA_LINK_FLAGS} -Wl,--gc-sections -Wl,--exclude-libs,ALL)
       endif()
     elseif (WIN32)
-      target_link_libraries(${TARGET_NAME} duckdb_static ${DUCKDB_EXTRA_LINK_FLAGS})
+      target_link_libraries(${TARGET_NAME} trexsql_static ${DUCKDB_EXTRA_LINK_FLAGS})
     else()
       message(FATAL_ERROR, "EXTENSION static build is only intended for Linux and Windows on MVSC")
     endif()
   else()
     if (WIN32)
-      target_link_libraries(${TARGET_NAME} duckdb ${DUCKDB_EXTRA_LINK_FLAGS})
+      target_link_libraries(${TARGET_NAME} trexsql ${DUCKDB_EXTRA_LINK_FLAGS})
     elseif("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang$")
       if (APPLE)
         set_target_properties(${TARGET_NAME} PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
@@ -1031,7 +1031,7 @@ function(build_static_extension NAME PARAMETERS)
   set(FILES "${ARGV}")
   list(REMOVE_AT FILES 0)
   add_library(${NAME}_extension STATIC ${FILES})
-  target_link_libraries(${NAME}_extension duckdb_static)
+  target_link_libraries(${NAME}_extension trexsql_static)
 endfunction()
 
 # Internal extension register function
@@ -1377,7 +1377,7 @@ set(CUSTOM_KEYS_CPP_CONTENT
 
 namespace duckdb {
 
-const char *const custom_public_keys[] = {
+extern const char *const custom_public_keys[] = {
 ${DUCKDB_CUSTOM_KEYS_CONTENT}    nullptr
 };
 
