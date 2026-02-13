@@ -47,7 +47,7 @@ static void WriteExtensionFileToDisk(QueryContext &query_context, FileSystem &fs
 
 	// Now signature has been checked (if signature checking is enabled)
 
-	// Open target_file, at this points ending with '.duckdb_extension'
+	// Open target_file, at this points ending with '.duckdb_extension' or '.trex'
 	auto target_file =
 	    fs.OpenFile(path, FileFlags::FILE_FLAGS_WRITE | FileFlags::FILE_FLAGS_READ | FileFlags::FILE_FLAGS_APPEND |
 	                          FileFlags::FILE_FLAGS_FILE_CREATE_NEW | FileFlags::FILE_FLAGS_ENABLE_EXTENSION_INSTALL);
@@ -94,16 +94,18 @@ static void CheckExtensionMetadataOnInstall(DatabaseInstance &db, void *in_buffe
 static void WriteExtensionFiles(QueryContext &query_context, FileSystem &fs, const string &temp_path,
                                 const string &local_extension_path, void *in_buffer, idx_t file_size,
                                 ExtensionInstallInfo &info, DatabaseInstance &db) {
-	// temp_path ends with '.duckdb_extension'
-	if (!StringUtil::EndsWith(temp_path, ".duckdb_extension")) {
-		throw InternalException("Extension install temp_path of '%s' is not valid, should end in '.duckdb_extension'",
-		                        temp_path);
+	// temp_path ends with '.duckdb_extension' or '.trex'
+	if (!StringUtil::EndsWith(temp_path, ".duckdb_extension") && !StringUtil::EndsWith(temp_path, ".trex")) {
+		throw InternalException(
+		    "Extension install temp_path of '%s' is not valid, should end in '.duckdb_extension' or '.trex'",
+		    temp_path);
 	}
-	// local_extension_path ends with '.duckdb_extension', and given it will be written only after signature checks,
-	// it's now loadable
-	if (!StringUtil::EndsWith(local_extension_path, ".duckdb_extension")) {
+	// local_extension_path ends with '.duckdb_extension' or '.trex', and given it will be written only after signature
+	// checks, it's now loadable
+	if (!StringUtil::EndsWith(local_extension_path, ".duckdb_extension") &&
+	    !StringUtil::EndsWith(local_extension_path, ".trex")) {
 		throw InternalException("Extension install local_extension_path of '%s' is not valid, should end in "
-		                        "'.duckdb_extension'",
+		                        "'.duckdb_extension' or '.trex'",
 		                        temp_path);
 	}
 
@@ -447,9 +449,12 @@ unique_ptr<ExtensionInstallInfo> InstallExternalExtension(DatabaseInstance &db, 
 		FileSystem::GetLocal(db).CreateDirectoriesRecursive(install_path);
 	}
 
-	string local_extension_path = fs.JoinPath(install_path, extension_name + ".duckdb_extension");
-	string temp_path =
-	    local_extension_path + ".tmp-" + UUID::ToString(UUID::GenerateRandomUUID()) + ".duckdb_extension";
+	string ext_suffix = ".duckdb_extension";
+	if (StringUtil::EndsWith(extension, ".trex")) {
+		ext_suffix = ".trex";
+	}
+	string local_extension_path = fs.JoinPath(install_path, extension_name + ext_suffix);
+	string temp_path = local_extension_path + ".tmp-" + UUID::ToString(UUID::GenerateRandomUUID()) + ext_suffix;
 
 	if (fs.FileExists(local_extension_path) && !options.force_install) {
 		// File exists: throw error if origin mismatches

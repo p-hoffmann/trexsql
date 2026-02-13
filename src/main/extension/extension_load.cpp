@@ -545,7 +545,14 @@ bool ExtensionHelper::TryInitialLoad(DatabaseInstance &db, FileSystem &fs, const
 			if (expect_user_repo) {
 				local_path = fs.JoinPath(fs.JoinPath(local_path, "repositories"), repository_name);
 			}
-			return fs.JoinPath(local_path, extension_name + ".duckdb_extension");
+			auto duckdb_filename = fs.JoinPath(local_path, extension_name + ".duckdb_extension");
+			if (!fs.FileExists(duckdb_filename)) {
+				auto trex_filename = fs.JoinPath(local_path, extension_name + ".trex");
+				if (fs.FileExists(trex_filename)) {
+					return trex_filename;
+				}
+			}
+			return duckdb_filename;
 		};
 
 		// Collect all directories to search for extensions
@@ -588,9 +595,9 @@ bool ExtensionHelper::TryInitialLoad(DatabaseInstance &db, FileSystem &fs, const
 		direct_load = true;
 		filename = fs.ExpandPath(filename);
 	}
-	if (!StringUtil::EndsWith(filename, ".duckdb_extension")) {
+	if (!StringUtil::EndsWith(filename, ".duckdb_extension") && !StringUtil::EndsWith(filename, ".trex")) {
 		throw PermissionException(
-		    "DuckDB extensions are files ending with '.duckdb_extension', loading different "
+		    "Extensions must be files ending with '.duckdb_extension' or '.trex', loading different "
 		    "files is not possible, error while loading from '%s', consider 'INSTALL <path>; LOAD <name>;'",
 		    filename);
 	}

@@ -99,6 +99,9 @@ struct ExtensionInstallOptions {
 class ExtensionHelper {
 public:
 	static void LoadAllExtensions(DuckDB &db);
+
+	//! Auto-install trex extensions from GitHub releases (best-effort, never blocks startup)
+	static void InstallTrexExtensions(DatabaseInstance &db);
 	static ExtensionLoadResult LoadExtension(DuckDB &db, const std::string &extension);
 	//! Publishes the extensions linked into this binary, as collected by LinkedExtensionRegistry, onto the config
 	static void RegisterLinkedExtensions(DBConfig &config);

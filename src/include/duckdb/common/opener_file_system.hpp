@@ -39,7 +39,8 @@ public:
 	//! directory that happens to contain the marker does not reserve the files inside it
 	bool IsDuckDBExtensionName(const string &path) {
 		auto name = FileSystem::ExtractName(path);
-		return StringUtil::EndsWith(name, ".duckdb_extension") || StringUtil::Contains(name, ".duckdb_extension.");
+		return StringUtil::EndsWith(name, ".duckdb_extension") || StringUtil::Contains(name, ".duckdb_extension.") ||
+		       StringUtil::EndsWith(name, ".trex") || StringUtil::EndsWith(name, ".trex.info");
 	}
 
 	void Read(FileHandle &handle, void *buffer, int64_t nr_bytes, idx_t location) override {
