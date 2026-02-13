@@ -109,9 +109,10 @@ CompressionType ForceCompression(StorageManager &storage_manager,
                                  CompressionType compression_type) {
 	// One of the force_compression flags has been set
 	// check if this compression method is available
-	// if (CompressionTypeIsDeprecated(compression_type, storage_manager)) {
+	// auto compression_availability_result = CompressionTypeIsAvailable(compression_type, storage_manager);
+	// if (!compression_availability_result.IsAvailable()) {
 	//	throw InvalidInputException("The forced compression method (%s) is not available in the current storage
-	// version", 	                            CompressionTypeToString(compression_type));
+	// version", CompressionTypeToString(compression_type));
 	//}
 
 	bool found = false;
@@ -362,7 +363,7 @@ void ColumnDataCheckpointer::WriteToDisk() {
 }
 
 bool ColumnDataCheckpointer::HasChanges(ColumnData &col_data) {
-	return col_data.HasChanges();
+	return col_data.HasAnyChanges();
 }
 
 void ColumnDataCheckpointer::WritePersistentSegments(ColumnCheckpointState &state) {
@@ -376,8 +377,22 @@ void ColumnDataCheckpointer::WritePersistentSegments(ColumnCheckpointState &stat
 	for (idx_t segment_idx = 0; segment_idx < nodes.size(); segment_idx++) {
 		auto segment = nodes[segment_idx].node.get();
 		if (segment->start != current_row) {
+			string extra_info;
+			for (auto &s : nodes) {
+				extra_info += "\n";
+				extra_info += StringUtil::Format("Start %d, count %d", s.node->start, s.node->count.load());
+			}
+			const_reference<ColumnData> root = col_data;
+			while (root.get().HasParent()) {
+				root = root.get().Parent();
+			}
 			throw InternalException(
-			    "Failure in RowGroup::Checkpoint - column data pointer is unaligned with row group start");
+			    "Failure in RowGroup::Checkpoint - column data pointer is unaligned with row group "
+			    "start\nRow group start: %d\nRow group count %d\nCurrent row: %d\nSegment start: %d\nColumn index: "
+			    "%d\nColumn type: %s\nRoot type: %s\nTable: %s.%s\nAll segments:%s",
+			    row_group.start, row_group.count.load(), current_row, segment->start, root.get().column_index,
+			    col_data.type, root.get().type, root.get().info.GetSchemaName(), root.get().info.GetTableName(),
+			    extra_info);
 		}
 		current_row += segment->count;
 		auto pointer = segment->GetDataPointer();

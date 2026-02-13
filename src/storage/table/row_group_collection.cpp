@@ -14,6 +14,7 @@
 #include "duckdb/storage/table/column_checkpoint_state.hpp"
 #include "duckdb/storage/table/persistent_table_data.hpp"
 #include "duckdb/storage/table/row_group_segment_tree.hpp"
+#include "duckdb/storage/table/row_version_manager.hpp"
 #include "duckdb/storage/table/scan_state.hpp"
 #include "duckdb/storage/table_storage_info.hpp"
 #include "duckdb/main/settings.hpp"
@@ -29,12 +30,12 @@ RowGroupSegmentTree::RowGroupSegmentTree(RowGroupCollection &collection)
 RowGroupSegmentTree::~RowGroupSegmentTree() {
 }
 
-void RowGroupSegmentTree::Initialize(PersistentTableData &data) {
+void RowGroupSegmentTree::Initialize(PersistentTableData &data, optional_ptr<vector<MetaBlockPointer>> read_pointers) {
 	D_ASSERT(data.row_group_count > 0);
 	current_row_group = 0;
 	max_row_group = data.row_group_count;
 	finished_loading = false;
-	reader = make_uniq<MetadataReader>(collection.GetMetadataManager(), data.block_pointer);
+	reader = make_uniq<MetadataReader>(collection.GetMetadataManager(), data.block_pointer, read_pointers);
 	root_pointer = data.block_pointer;
 }
 
@@ -96,13 +97,16 @@ void RowGroupCollection::Initialize(PersistentTableData &data) {
 	D_ASSERT(this->row_start == 0);
 	auto l = row_groups->Lock();
 	this->total_rows = data.total_rows;
-	row_groups->Initialize(data);
-	stats.Initialize(types, data);
 	metadata_pointer = data.base_table_pointer;
+	metadata_pointers = data.read_metadata_pointers;
+	row_groups->Initialize(data, metadata_pointers);
+	stats.Initialize(types, data);
 }
 
-void RowGroupCollection::FinalizeCheckpoint(MetaBlockPointer pointer) {
+void RowGroupCollection::FinalizeCheckpoint(MetaBlockPointer pointer,
+                                            const vector<MetaBlockPointer> &existing_pointers) {
 	metadata_pointer = pointer;
+	metadata_pointers = existing_pointers;
 }
 
 void RowGroupCollection::Initialize(PersistentCollectionData &data) {
@@ -505,6 +509,11 @@ void RowGroupCollection::RevertAppendInternal(idx_t start_row) {
 	if (segment.start == start_row) {
 		// we are truncating exactly this row group - erase it entirely
 		row_groups->EraseSegments(l, segment_index);
+		if (segment_index > 0) {
+			// if we have a previous segment, we need to update the next pointer
+			auto previous_segment = row_groups->GetSegmentByIndex(l, UnsafeNumericCast<int64_t>(segment_index - 1));
+			previous_segment->next = nullptr;
+		}
 	} else {
 		// we need to truncate within a row group
 		// remove any segments AFTER this segment: they should be deleted entirely
@@ -645,14 +654,14 @@ optional_ptr<RowGroup> RowGroupCollection::NextUpdateRowGroup(row_t *ids, idx_t 
 	return row_group;
 }
 
-void RowGroupCollection::Update(TransactionData transaction, row_t *ids, const vector<PhysicalIndex> &column_ids,
-                                DataChunk &updates) {
+void RowGroupCollection::Update(TransactionData transaction, DataTable &data_table, row_t *ids,
+                                const vector<PhysicalIndex> &column_ids, DataChunk &updates) {
 	D_ASSERT(updates.size() >= 1);
 	idx_t pos = 0;
 	do {
 		idx_t start = pos;
 		auto row_group = NextUpdateRowGroup(ids, pos, updates.size());
-		row_group->Update(transaction, updates, ids, start, pos - start, column_ids);
+		row_group->Update(transaction, data_table, updates, ids, start, pos - start, column_ids);
 
 		auto l = stats.GetLock();
 		for (idx_t i = 0; i < column_ids.size(); i++) {
@@ -665,14 +674,16 @@ void RowGroupCollection::Update(TransactionData transaction, row_t *ids, const v
 void RowGroupCollection::RemoveFromIndexes(TableIndexList &indexes, Vector &row_identifiers, idx_t count) {
 	auto row_ids = FlatVector::GetData<row_t>(row_identifiers);
 
-	// Collect all indexed columns.
+	// Collect all Indexed columns on the table.
 	unordered_set<column_t> indexed_column_id_set;
 	indexes.Scan([&](Index &index) {
-		D_ASSERT(index.IsBound());
 		auto &set = index.GetColumnIdSet();
 		indexed_column_id_set.insert(set.begin(), set.end());
 		return false;
 	});
+
+	// If we are in WAL replay, delete data will be buffered, and so we sort the column_ids
+	// since the sorted form will be the mapping used to get back physical IDs from the buffered index chunk.
 	vector<StorageIndex> column_ids;
 	for (auto &col : indexed_column_id_set) {
 		column_ids.emplace_back(col);
@@ -686,10 +697,10 @@ void RowGroupCollection::RemoveFromIndexes(TableIndexList &indexes, Vector &row_
 
 	// Initialize the fetch state. Only use indexed columns.
 	TableScanState state;
-	state.Initialize(std::move(column_ids));
+	auto column_ids_copy = column_ids;
+	state.Initialize(std::move(column_ids_copy));
 	state.table_state.max_row = row_start + total_rows;
 
-	// Used for scanning data. Only contains the indexed columns.
 	DataChunk fetch_chunk;
 	fetch_chunk.Initialize(GetAllocator(), column_types);
 
@@ -749,30 +760,37 @@ void RowGroupCollection::RemoveFromIndexes(TableIndexList &indexes, Vector &row_
 		result_chunk.SetCardinality(fetch_chunk);
 
 		// Slice the vector with all rows that are present in this vector.
-		// Then, erase all values from the indexes.
+		// If the index is bound, delete the data. If unbound, buffer into unbound_index.
 		result_chunk.Slice(sel, sel_count);
 		indexes.Scan([&](Index &index) {
 			if (index.IsBound()) {
 				index.Cast<BoundIndex>().Delete(result_chunk, row_identifiers);
 				return false;
 			}
-			throw MissingExtensionException(
-			    "Cannot delete from index '%s', unknown index type '%s'. You need to load the "
-			    "extension that provides this index type before table '%s' can be modified.",
-			    index.GetIndexName(), index.GetIndexType(), info->GetTableName());
+			// Buffering takes only the indexed columns in ordering of the column_ids mapping.
+			DataChunk index_column_chunk;
+			index_column_chunk.InitializeEmpty(column_types);
+			for (idx_t i = 0; i < column_types.size(); i++) {
+				auto col_id = column_ids[i].GetPrimaryIndex();
+				index_column_chunk.data[i].Reference(result_chunk.data[col_id]);
+			}
+			index_column_chunk.SetCardinality(result_chunk.size());
+			auto &unbound_index = index.Cast<UnboundIndex>();
+			unbound_index.BufferChunk(index_column_chunk, row_identifiers, column_ids, BufferedIndexReplay::DEL_ENTRY);
+			return false;
 		});
 	}
 }
 
-void RowGroupCollection::UpdateColumn(TransactionData transaction, Vector &row_ids, const vector<column_t> &column_path,
-                                      DataChunk &updates) {
+void RowGroupCollection::UpdateColumn(TransactionData transaction, DataTable &data_table, Vector &row_ids,
+                                      const vector<column_t> &column_path, DataChunk &updates) {
 	D_ASSERT(updates.size() >= 1);
 	auto ids = FlatVector::GetData<row_t>(row_ids);
 	idx_t pos = 0;
 	do {
 		idx_t start = pos;
 		auto row_group = NextUpdateRowGroup(ids, pos, updates.size());
-		row_group->UpdateColumn(transaction, updates, row_ids, start, pos - start, column_path);
+		row_group->UpdateColumn(transaction, data_table, updates, row_ids, start, pos - start, column_path);
 
 		auto lock = stats.GetLock();
 		auto primary_column_idx = column_path[0];
@@ -1008,8 +1026,8 @@ bool RowGroupCollection::ScheduleVacuumTasks(CollectionCheckpointState &checkpoi
 	}
 	idx_t merge_rows;
 	idx_t next_idx = 0;
-	idx_t merge_count;
-	idx_t target_count;
+	idx_t merge_count = 0;
+	idx_t target_count = 0;
 	bool perform_merge = false;
 	// check if we can merge row groups adjacent to the current segment_idx
 	// we try merging row groups into batches of 1-3 row groups
@@ -1061,6 +1079,8 @@ bool RowGroupCollection::ScheduleVacuumTasks(CollectionCheckpointState &checkpoi
 		return false;
 	}
 	// schedule the vacuum task
+	DUCKDB_LOG(checkpoint_state.writer.GetDatabase(), CheckpointLogType, GetAttached(), *info, segment_idx, merge_count,
+	           target_count, merge_rows, state.row_start);
 	auto vacuum_task = make_uniq<VacuumTask>(checkpoint_state, state, segment_idx, merge_count, target_count,
 	                                         merge_rows, state.row_start);
 	checkpoint_state.executor->ScheduleTask(std::move(vacuum_task));
@@ -1107,6 +1127,8 @@ void RowGroupCollection::Checkpoint(TableDataWriter &writer, TableStatistics &gl
 			// schedule a checkpoint task for this row group
 			entry.node->MoveToCollection(*this, vacuum_state.row_start);
 			if (writer.GetCheckpointType() != CheckpointType::VACUUM_ONLY) {
+				DUCKDB_LOG(checkpoint_state.writer.GetDatabase(), CheckpointLogType, GetAttached(), *info, segment_idx,
+				           *entry.node);
 				auto checkpoint_task = GetCheckpointTask(checkpoint_state, segment_idx);
 				checkpoint_state.executor->ScheduleTask(std::move(checkpoint_task));
 			}
@@ -1132,7 +1154,7 @@ void RowGroupCollection::Checkpoint(TableDataWriter &writer, TableStatistics &gl
 				break;
 			}
 			auto &write_state = checkpoint_state.write_data[segment_idx];
-			if (write_state.existing_pointers.empty()) {
+			if (!write_state.reuse_existing_metadata_blocks) {
 				table_has_changes = true;
 				break;
 			}
@@ -1146,11 +1168,18 @@ void RowGroupCollection::Checkpoint(TableDataWriter &writer, TableStatistics &gl
 				auto &entry = segments[segment_idx];
 				auto &row_group = *entry.node;
 				auto &write_state = checkpoint_state.write_data[segment_idx];
-				metadata_manager.ClearModifiedBlocks(write_state.existing_pointers);
-				metadata_manager.ClearModifiedBlocks(row_group.GetDeletesPointers());
+				metadata_manager.ClearModifiedBlocks(row_group.GetColumnStartPointers());
+				D_ASSERT(write_state.reuse_existing_metadata_blocks);
+				vector<MetaBlockPointer> extra_metadata_block_pointers;
+				extra_metadata_block_pointers.reserve(write_state.existing_extra_metadata_blocks.size());
+				for (auto &block_pointer : write_state.existing_extra_metadata_blocks) {
+					extra_metadata_block_pointers.emplace_back(block_pointer, 0);
+				}
+				metadata_manager.ClearModifiedBlocks(extra_metadata_block_pointers);
+				row_group.CheckpointDeletes(metadata_manager);
 				row_groups->AppendSegment(l, std::move(entry.node));
 			}
-			writer.WriteUnchangedTable(metadata_pointer, total_rows.load());
+			writer.WriteUnchangedTable(metadata_pointer, metadata_pointers, total_rows.load());
 			return;
 		}
 	}
@@ -1174,11 +1203,132 @@ void RowGroupCollection::Checkpoint(TableDataWriter &writer, TableStatistics &gl
 		if (!row_group_writer) {
 			throw InternalException("Missing row group writer for index %llu", segment_idx);
 		}
+		bool metadata_reuse = checkpoint_state.write_data[segment_idx].reuse_existing_metadata_blocks;
 		auto pointer =
 		    row_group.Checkpoint(std::move(checkpoint_state.write_data[segment_idx]), *row_group_writer, global_stats);
+
+		auto debug_verify_blocks = DBConfig::GetSetting<DebugVerifyBlocksSetting>(GetAttached().GetDatabase()) &&
+		                           dynamic_cast<SingleFileTableDataWriter *>(&checkpoint_state.writer) != nullptr;
+		RowGroupPointer pointer_copy;
+		if (debug_verify_blocks) {
+			pointer_copy = pointer;
+		}
 		writer.AddRowGroup(std::move(pointer), std::move(row_group_writer));
 		row_groups->AppendSegment(l, std::move(entry.node));
 		new_total_rows += row_group.count;
+
+		if (debug_verify_blocks) {
+			if (!pointer_copy.has_metadata_blocks) {
+				throw InternalException("Checkpointing should always remember metadata blocks");
+			}
+			if (metadata_reuse && pointer_copy.data_pointers != row_group.GetColumnStartPointers()) {
+				throw InternalException("Colum start pointers changed during metadata reuse");
+			}
+
+			// Capture blocks that have been written
+			vector<MetaBlockPointer> all_written_blocks = pointer_copy.data_pointers;
+			vector<MetaBlockPointer> all_metadata_blocks;
+			for (auto &block : pointer_copy.extra_metadata_blocks) {
+				all_written_blocks.emplace_back(block, 0);
+				all_metadata_blocks.emplace_back(block, 0);
+			}
+
+			// Verify that we can load the metadata correctly again
+			vector<MetaBlockPointer> all_quick_read_blocks;
+			for (auto &ptr : row_group.GetColumnStartPointers()) {
+				all_quick_read_blocks.emplace_back(ptr);
+				if (metadata_reuse && !block_manager.GetMetadataManager().BlockHasBeenCleared(ptr)) {
+					throw InternalException("Found column start block that was not cleared");
+				}
+			}
+			auto extra_metadata_blocks = row_group.GetOrComputeExtraMetadataBlocks(/* force_compute: */ true);
+			for (auto &ptr : extra_metadata_blocks) {
+				auto block_pointer = MetaBlockPointer(ptr, 0);
+				all_quick_read_blocks.emplace_back(block_pointer);
+				if (metadata_reuse && !block_manager.GetMetadataManager().BlockHasBeenCleared(block_pointer)) {
+					throw InternalException("Found extra metadata block that was not cleared");
+				}
+			}
+
+			// Deserialize all columns to check if the quick read via GetOrComputeExtraMetadataBlocks was correct
+			vector<MetaBlockPointer> all_full_read_blocks;
+			auto column_start_pointers = row_group.GetColumnStartPointers();
+			auto &types = row_group.GetCollection().GetTypes();
+			auto &metadata_manager = row_group.GetCollection().GetMetadataManager();
+			for (idx_t i = 0; i < column_start_pointers.size(); i++) {
+				MetadataReader reader(metadata_manager, column_start_pointers[i], &all_full_read_blocks);
+				ColumnData::Deserialize(GetBlockManager(), GetTableInfo(), i, row_group.start, reader, types[i]);
+			}
+
+			// Derive sets of blocks to compare
+			set<idx_t> all_written_block_ids;
+			for (auto &ptr : all_written_blocks) {
+				all_written_block_ids.insert(ptr.block_pointer);
+			}
+			set<idx_t> all_quick_read_block_ids;
+			for (auto &ptr : all_quick_read_blocks) {
+				all_quick_read_block_ids.insert(ptr.block_pointer);
+			}
+			set<idx_t> all_full_read_block_ids;
+			for (auto &ptr : all_full_read_blocks) {
+				all_full_read_block_ids.insert(ptr.block_pointer);
+			}
+			if (all_written_block_ids != all_quick_read_block_ids ||
+			    all_quick_read_block_ids != all_full_read_block_ids) {
+				std::stringstream oss;
+				oss << "Written: ";
+				for (auto &block : all_written_blocks) {
+					oss << block << ", ";
+				}
+				oss << "\n";
+				oss << "Quick read: ";
+				for (auto &block : all_quick_read_blocks) {
+					oss << block << ", ";
+				}
+				oss << "\n";
+				oss << "Full read: ";
+				for (auto &block : all_full_read_blocks) {
+					oss << block << ", ";
+				}
+				oss << "\n";
+
+				throw InternalException("Reloading blocks just written does not yield same blocks: " + oss.str());
+			}
+
+			vector<MetaBlockPointer> read_deletes_pointers;
+			if (!pointer_copy.deletes_pointers.empty()) {
+				auto root_delete = pointer_copy.deletes_pointers[0];
+				auto vm = RowVersionManager::Deserialize(root_delete, GetBlockManager().GetMetadataManager(),
+				                                         row_group.start);
+				read_deletes_pointers = vm->GetStoragePointers();
+			}
+
+			set<idx_t> all_written_deletes_block_ids;
+			for (auto &ptr : pointer_copy.deletes_pointers) {
+				all_written_deletes_block_ids.insert(ptr.block_pointer);
+			}
+			set<idx_t> all_read_deletes_block_ids;
+			for (auto &ptr : read_deletes_pointers) {
+				all_read_deletes_block_ids.insert(ptr.block_pointer);
+			}
+
+			if (all_written_deletes_block_ids != all_read_deletes_block_ids) {
+				std::stringstream oss;
+				oss << "Written: ";
+				for (auto &block : all_written_deletes_block_ids) {
+					oss << block << ", ";
+				}
+				oss << "\n";
+				oss << "Read: ";
+				for (auto &block : all_read_deletes_block_ids) {
+					oss << block << ", ";
+				}
+				oss << "\n";
+
+				throw InternalException("Reloading deletes blocks just written does not yield same blocks: " +
+				                        oss.str());
+			}
+		}
 	}
 	total_rows = new_total_rows;
 	l.Release();

@@ -3,6 +3,7 @@
 #include "duckdb/common/adbc/adbc.hpp"
 #include "duckdb/common/adbc/wrappers.hpp"
 #include "duckdb/common/adbc/options.h"
+#include "duckdb/common/arrow/nanoarrow/nanoarrow.hpp"
 #include <iostream>
 
 namespace duckdb {
@@ -139,6 +140,15 @@ TEST_CASE("ADBC - Select 42", "[adbc]") {
 	REQUIRE(db.QueryAndCheck("SELECT 42"));
 }
 
+TEST_CASE("ADBC - non-empty query without actual statements", "[adbc]") {
+	if (!duckdb_lib) {
+		return;
+	}
+	ADBCTestDatabase db;
+
+	REQUIRE(db.QueryAndCheck("--"));
+}
+
 TEST_CASE("ADBC - Test ingestion", "[adbc]") {
 	if (!duckdb_lib) {
 		return;
@@ -211,6 +221,79 @@ TEST_CASE("ADBC - Test ingestion - Quoted Table and Schema", "[adbc]") {
 	                                             &adbc_error)));
 	REQUIRE((arrow_schema.n_children == 1));
 	arrow_schema.release(&arrow_schema);
+}
+
+TEST_CASE("ADBC - Test Ingestion - Funky identifiers", "[adbc]") {
+	if (!duckdb_lib) {
+		return;
+	}
+	ADBCTestDatabase db;
+	std::vector<std::string> column_names = {"column.with.dots", "column\"with\"quotes", "column with whitespace"};
+	std::string table_name = "my.table\"is 😵";
+	std::string schema_name = "my schema\"is.😬";
+	// Create a schema and allocate space for a single child
+	ArrowSchema arrow_schema;
+	duckdb_nanoarrow::ArrowSchemaInit(&arrow_schema, duckdb_nanoarrow::ArrowType::NANOARROW_TYPE_STRUCT);
+	duckdb_nanoarrow::ArrowSchemaAllocateChildren(&arrow_schema, static_cast<int64_t>(column_names.size()));
+
+	// Create the child schemas and build the select query to get test data
+	std::string query = "SELECT ";
+	for (size_t i = 0; i < column_names.size(); i++) {
+		duckdb_nanoarrow::ArrowSchemaInit(arrow_schema.children[i], duckdb_nanoarrow::ArrowType::NANOARROW_TYPE_INT32);
+		duckdb_nanoarrow::ArrowSchemaSetName(arrow_schema.children[i], column_names.at(i).c_str());
+		if (i > 0) {
+			query += ",";
+		}
+		query += std::to_string(i);
+	}
+
+	// Create input data
+	auto &input_data = db.QueryArrow(query);
+	ArrowArray prepared_array;
+	input_data.get_next(&input_data, &prepared_array);
+
+	// Create the schema
+	db.Query("CREATE SCHEMA " + KeywordHelper::WriteOptionallyQuoted(schema_name));
+
+	// Create ADBC statement that will create a table called "test"
+	AdbcStatement adbc_stmt;
+	AdbcError adbc_error;
+	InitializeADBCError(&adbc_error);
+	REQUIRE(SUCCESS(AdbcStatementNew(&db.adbc_connection, &adbc_stmt, &adbc_error)));
+	REQUIRE(SUCCESS(
+	    AdbcStatementSetOption(&adbc_stmt, ADBC_INGEST_OPTION_MODE, ADBC_INGEST_OPTION_MODE_CREATE, &adbc_error)));
+	REQUIRE(SUCCESS(
+	    AdbcStatementSetOption(&adbc_stmt, ADBC_INGEST_OPTION_TARGET_DB_SCHEMA, schema_name.c_str(), &adbc_error)));
+	REQUIRE(
+	    SUCCESS(AdbcStatementSetOption(&adbc_stmt, ADBC_INGEST_OPTION_TARGET_TABLE, table_name.c_str(), &adbc_error)));
+	REQUIRE(SUCCESS(AdbcStatementBind(&adbc_stmt, &prepared_array, &arrow_schema, &adbc_error)));
+
+	// Now execute: this should create the table and put the test data in
+	REQUIRE(SUCCESS(AdbcStatementExecuteQuery(&adbc_stmt, nullptr, nullptr, &adbc_error)));
+
+	// Release everything
+	REQUIRE(SUCCESS(AdbcStatementRelease(&adbc_stmt, &adbc_error)));
+	if (arrow_schema.release) {
+		arrow_schema.release(&arrow_schema);
+	}
+	if (adbc_error.release) {
+		adbc_error.release(&adbc_error);
+	}
+	if (input_data.release) {
+		input_data.release(&input_data);
+	}
+	if (prepared_array.release) {
+		prepared_array.release(&prepared_array);
+	}
+
+	// Check we can query
+	auto schema_table =
+	    KeywordHelper::WriteOptionallyQuoted(schema_name) + "." + KeywordHelper::WriteOptionallyQuoted(table_name);
+	auto res = db.Query("select * from " + schema_table);
+	for (size_t i = 0; i < column_names.size(); i++) {
+		REQUIRE((res->ColumnName(i) == column_names.at(i)));
+		REQUIRE((res->GetValue(i, 0) == i));
+	}
 }
 
 TEST_CASE("ADBC - Test ingestion - Lineitem", "[adbc]") {
@@ -1119,6 +1202,49 @@ TEST_CASE("Test AdbcConnectionGetTableTypes", "[adbc]") {
 	auto res = db.Query("Select * from result");
 	REQUIRE((res->ColumnCount() == 1));
 	REQUIRE((res->GetValue(0, 0).ToString() == "BASE TABLE"));
+	adbc_error.release(&adbc_error);
+}
+
+TEST_CASE("ADBC - Empty sql (unhappy)", "[adbc]") {
+	if (!duckdb_lib) {
+		return;
+	}
+	AdbcDatabase adbc_database;
+	AdbcConnection adbc_connection;
+
+	AdbcError adbc_error;
+	InitializeADBCError(&adbc_error);
+
+	string query;
+	SECTION("Empty") {
+		query = "";
+	}
+	SECTION("Whitespace") {
+		query = " \n";
+	}
+
+	// Create connection - database and whatnot
+	REQUIRE(SUCCESS(AdbcDatabaseNew(&adbc_database, &adbc_error)));
+	REQUIRE(SUCCESS(AdbcDatabaseSetOption(&adbc_database, "driver", duckdb_lib, &adbc_error)));
+	REQUIRE(SUCCESS(AdbcDatabaseSetOption(&adbc_database, "entrypoint", "duckdb_adbc_init", &adbc_error)));
+	REQUIRE(SUCCESS(AdbcDatabaseSetOption(&adbc_database, "path", ":memory:", &adbc_error)));
+
+	REQUIRE(SUCCESS(AdbcDatabaseInit(&adbc_database, &adbc_error)));
+
+	REQUIRE(SUCCESS(AdbcConnectionNew(&adbc_connection, &adbc_error)));
+	REQUIRE(SUCCESS(AdbcConnectionInit(&adbc_connection, &adbc_database, &adbc_error)));
+
+	AdbcStatement adbc_statement;
+	REQUIRE(SUCCESS(AdbcStatementNew(&adbc_connection, &adbc_statement, &adbc_error)));
+	auto status = AdbcStatementSetSqlQuery(&adbc_statement, query.c_str(), &adbc_error);
+
+	REQUIRE((status == ADBC_STATUS_INVALID_ARGUMENT));
+
+	REQUIRE(SUCCESS(AdbcStatementRelease(&adbc_statement, &adbc_error)));
+
+	REQUIRE(SUCCESS(AdbcConnectionRelease(&adbc_connection, &adbc_error)));
+	REQUIRE(SUCCESS(AdbcDatabaseRelease(&adbc_database, &adbc_error)));
+
 	adbc_error.release(&adbc_error);
 }
 
@@ -2293,6 +2419,45 @@ TEST_CASE("Test AdbcConnectionGetObjects", "[adbc]") {
 		REQUIRE((strcmp(adbc_error.message,
 		                "Table type must be \"LOCAL TABLE\", \"BASE TABLE\" or \"VIEW\": \"INVALID\"") == 0));
 		adbc_error.release(&adbc_error);
+	}
+
+	// Test input quoting protection
+	{
+		ADBCTestDatabase db("test_input_quoting");
+		db.CreateTable("test_table", db.QueryArrow("SELECT 42 as value"));
+
+		AdbcError adbc_error;
+		InitializeADBCError(&adbc_error);
+		ArrowArrayStream arrow_stream;
+
+		// Test catalog filter with special characters
+		auto status =
+		    AdbcConnectionGetObjects(&db.adbc_connection, ADBC_OBJECT_DEPTH_CATALOGS, "'; DROP TABLE test_table; --",
+		                             nullptr, nullptr, nullptr, nullptr, &arrow_stream, &adbc_error);
+		REQUIRE(status == ADBC_STATUS_OK);
+		// Verify table still exists after special characters in filter
+		auto res = db.Query("SELECT * FROM test_table");
+		REQUIRE(res->RowCount() == 1);
+		arrow_stream.release(&arrow_stream);
+
+		// Test schema filter with special characters
+		status = AdbcConnectionGetObjects(&db.adbc_connection, ADBC_OBJECT_DEPTH_DB_SCHEMAS, nullptr,
+		                                  "'; DROP TABLE test_table; --", nullptr, nullptr, nullptr, &arrow_stream,
+		                                  &adbc_error);
+		REQUIRE(status == ADBC_STATUS_OK);
+		// Verify table still exists
+		res = db.Query("SELECT * FROM test_table");
+		REQUIRE(res->RowCount() == 1);
+		arrow_stream.release(&arrow_stream);
+
+		// Test table name filter with special characters
+		status = AdbcConnectionGetObjects(&db.adbc_connection, ADBC_OBJECT_DEPTH_TABLES, nullptr, nullptr,
+		                                  "'; DROP TABLE test_table; --", nullptr, nullptr, &arrow_stream, &adbc_error);
+		REQUIRE(status == ADBC_STATUS_OK);
+		// Verify table still exists
+		res = db.Query("SELECT * FROM test_table");
+		REQUIRE(res->RowCount() == 1);
+		arrow_stream.release(&arrow_stream);
 	}
 }
 } // namespace duckdb

@@ -86,6 +86,8 @@ enum class BlockIteratorStateType : int8_t;
 
 enum class BlockState : uint8_t;
 
+enum class BufferedIndexReplay : uint8_t;
+
 enum class CAPIResultSetType : uint8_t;
 
 enum class CSVState : uint8_t;
@@ -233,6 +235,8 @@ enum class LogContextScope : uint8_t;
 enum class LogLevel : uint8_t;
 
 enum class LogMode : uint8_t;
+
+enum class LoggingTargetTable : uint8_t;
 
 enum class LogicalOperatorType : uint8_t;
 
@@ -527,6 +531,9 @@ template<>
 const char* EnumUtil::ToChars<BlockState>(BlockState value);
 
 template<>
+const char* EnumUtil::ToChars<BufferedIndexReplay>(BufferedIndexReplay value);
+
+template<>
 const char* EnumUtil::ToChars<CAPIResultSetType>(CAPIResultSetType value);
 
 template<>
@@ -747,6 +754,9 @@ const char* EnumUtil::ToChars<LogLevel>(LogLevel value);
 
 template<>
 const char* EnumUtil::ToChars<LogMode>(LogMode value);
+
+template<>
+const char* EnumUtil::ToChars<LoggingTargetTable>(LoggingTargetTable value);
 
 template<>
 const char* EnumUtil::ToChars<LogicalOperatorType>(LogicalOperatorType value);
@@ -1146,6 +1156,9 @@ template<>
 BlockState EnumUtil::FromString<BlockState>(const char *value);
 
 template<>
+BufferedIndexReplay EnumUtil::FromString<BufferedIndexReplay>(const char *value);
+
+template<>
 CAPIResultSetType EnumUtil::FromString<CAPIResultSetType>(const char *value);
 
 template<>
@@ -1366,6 +1379,9 @@ LogLevel EnumUtil::FromString<LogLevel>(const char *value);
 
 template<>
 LogMode EnumUtil::FromString<LogMode>(const char *value);
+
+template<>
+LoggingTargetTable EnumUtil::FromString<LoggingTargetTable>(const char *value);
 
 template<>
 LogicalOperatorType EnumUtil::FromString<LogicalOperatorType>(const char *value);

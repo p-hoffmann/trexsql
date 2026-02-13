@@ -52,23 +52,47 @@ optional_ptr<AttachedDatabase> DatabaseManager::GetDatabase(ClientContext &conte
 		return database;
 	}
 	lock_guard<mutex> guard(databases_lock);
+	shared_ptr<AttachedDatabase> db;
 	if (StringUtil::Lower(name) == TEMP_CATALOG) {
-		return meta_transaction.UseDatabase(context.client_data->temporary_objects);
+		db = context.client_data->temporary_objects;
+	} else {
+		db = GetDatabaseInternal(guard, name);
 	}
+	if (!db) {
+		return nullptr;
+	}
+	return meta_transaction.UseDatabase(db);
+}
+
+shared_ptr<AttachedDatabase> DatabaseManager::GetDatabase(const string &name) {
+	lock_guard<mutex> guard(databases_lock);
+	return GetDatabaseInternal(guard, name);
+}
+
+shared_ptr<AttachedDatabase> DatabaseManager::GetDatabaseInternal(const lock_guard<mutex> &, const string &name) {
 	if (StringUtil::Lower(name) == SYSTEM_CATALOG) {
-		return meta_transaction.UseDatabase(system);
+		return system;
 	}
 	auto entry = databases.find(name);
 	if (entry == databases.end()) {
 		// not found
 		return nullptr;
 	}
-	return meta_transaction.UseDatabase(entry->second);
+	return entry->second;
 }
 
 shared_ptr<AttachedDatabase> DatabaseManager::AttachDatabase(ClientContext &context, AttachInfo &info,
                                                              AttachOptions &options) {
-	auto &config = DBConfig::GetConfig(context);
+	string extension = "";
+	if (FileSystem::IsRemoteFile(info.path, extension)) {
+		if (options.access_mode == AccessMode::AUTOMATIC) {
+			// Attaching of remote files gets bumped to READ_ONLY
+			// This is due to the fact that on most (all?) remote files writes to DB are not available
+			// and having this raised later is not super helpful
+			options.access_mode = AccessMode::READ_ONLY;
+		}
+	}
+
 	if (options.db_type.empty() || StringUtil::CIEquals(options.db_type, "duckdb")) {
 		while (InsertDatabasePath(info, options) == InsertDatabasePathResult::ALREADY_EXISTS) {
 			// database with this name and path already exists
@@ -84,6 +108,7 @@ shared_ptr<AttachedDatabase> DatabaseManager::AttachDatabase(ClientContext &cont
 			}
 		}
 	}
+	auto &config = DBConfig::GetConfig(context);
 	GetDatabaseType(context, info, config, options);
 	if (!options.db_type.empty()) {
 		// we only need to prevent duplicate opening of DuckDB files
@@ -93,17 +118,10 @@ shared_ptr<AttachedDatabase> DatabaseManager::AttachDatabase(ClientContext &cont
 	if (AttachedDatabase::NameIsReserved(info.name)) {
 		throw BinderException("Attached database name \"%s\" cannot be used because it is a reserved name", info.name);
 	}
-	string extension = "";
-	if (FileSystem::IsRemoteFile(info.path, extension)) {
+	if (!extension.empty()) {
 		if (!ExtensionHelper::TryAutoLoadExtension(context, extension)) {
 			throw MissingExtensionException("Attaching path '%s' requires extension '%s' to be loaded", info.path,
 			                                extension);
-		}
-		if (options.access_mode == AccessMode::AUTOMATIC) {
-			// Attaching of remote files gets bumped to READ_ONLY
-			// This is due to the fact that on most (all?) remote files writes to DB are not available
-			// and having this raised later is not super helpful
-			options.access_mode = AccessMode::READ_ONLY;
 		}
 	}
 
@@ -184,7 +202,7 @@ idx_t DatabaseManager::ApproxDatabaseCount() {
 }
 
 InsertDatabasePathResult DatabaseManager::InsertDatabasePath(const AttachInfo &info, AttachOptions &options) {
-	return path_manager->InsertDatabasePath(info.path, info.name, info.on_conflict, options);
+	return path_manager->InsertDatabasePath(*this, info.path, info.name, info.on_conflict, options);
 }
 
 vector<string> DatabaseManager::GetAttachedDatabasePaths() {

@@ -86,6 +86,7 @@ static const ConfigurationOption internal_options[] = {
     DUCKDB_LOCAL(DebugForceExternalSetting),
     DUCKDB_SETTING(DebugForceNoCrossProductSetting),
     DUCKDB_SETTING(DebugSkipCheckpointOnCommitSetting),
+    DUCKDB_SETTING(DebugVerifyBlocksSetting),
     DUCKDB_SETTING_CALLBACK(DebugVerifyVectorSetting),
     DUCKDB_SETTING_CALLBACK(DebugWindowModeSetting),
     DUCKDB_GLOBAL(DefaultBlockSizeSetting),
@@ -177,12 +178,12 @@ static const ConfigurationOption internal_options[] = {
     DUCKDB_GLOBAL(ZstdMinStringLengthSetting),
     FINAL_SETTING};
 
-static const ConfigurationAlias setting_aliases[] = {DUCKDB_SETTING_ALIAS("memory_limit", 83),
-                                                     DUCKDB_SETTING_ALIAS("null_order", 33),
-                                                     DUCKDB_SETTING_ALIAS("profiling_output", 102),
-                                                     DUCKDB_SETTING_ALIAS("user", 116),
+static const ConfigurationAlias setting_aliases[] = {DUCKDB_SETTING_ALIAS("memory_limit", 84),
+                                                     DUCKDB_SETTING_ALIAS("null_order", 34),
+                                                     DUCKDB_SETTING_ALIAS("profiling_output", 103),
+                                                     DUCKDB_SETTING_ALIAS("user", 117),
                                                      DUCKDB_SETTING_ALIAS("wal_autocheckpoint", 20),
-                                                     DUCKDB_SETTING_ALIAS("worker_threads", 115),
+                                                     DUCKDB_SETTING_ALIAS("worker_threads", 116),
                                                      FINAL_ALIAS};
 
 vector<ConfigurationOption> DBConfig::GetOptions() {
@@ -764,12 +765,40 @@ const string DBConfig::UserAgent() const {
 	return user_agent;
 }
 
-string DBConfig::SanitizeAllowedPath(const string &path) const {
-	auto path_sep = file_system->PathSeparator(path);
+string DBConfig::SanitizeAllowedPath(const string &path_p) const {
+	auto path_sep = file_system->PathSeparator(path_p);
+	auto path = path_p;
 	if (path_sep != "/") {
 		// allowed_directories/allowed_path always uses forward slashes regardless of the OS
-		return StringUtil::Replace(path, path_sep, "/");
+		path = StringUtil::Replace(path_p, path_sep, "/");
 	}
+
+	auto elements = StringUtil::Split(path, "/");
+	path.clear(); // later reconstructed
+	deque<string> path_stack;
+	for (idx_t i = 0; i < elements.size(); i++) {
+		if (elements[i].empty() || elements[i] == ".") {
+			// we ignore empty and `.`
+			continue;
+		}
+		if (elements[i] == "..") {
+			// .. pops from stack if possible, if already at root its ignored
+			if (!path_stack.empty()) {
+				path_stack.pop_back();
+			}
+		} else {
+			path_stack.push_back(elements[i]);
+		}
+	}
+	// we lost the leading / in the split/loop so leats put it back
+	if (path_p[0] == '/') {
+		path = "/";
+	}
+	while (!path_stack.empty()) {
+		path += path_stack.front() + '/';
+		path_stack.pop_front();
+	}
+
 	return path;
 }
 
@@ -796,10 +825,12 @@ bool DBConfig::CanAccessFile(const string &input_path, FileType type) {
 		return true;
 	}
 	string path = SanitizeAllowedPath(input_path);
+
 	if (options.allowed_paths.count(path) > 0) {
 		// path is explicitly allowed
 		return true;
 	}
+
 	if (options.allowed_directories.empty()) {
 		// no prefix directories specified
 		return false;
@@ -824,27 +855,6 @@ bool DBConfig::CanAccessFile(const string &input_path, FileType type) {
 		return false;
 	}
 	D_ASSERT(StringUtil::EndsWith(prefix, "/"));
-	// path is inside an allowed directory - HOWEVER, we could still exit the allowed directory using ".."
-	// we check if we ever exit the allowed directory using ".." by looking at the path fragments
-	idx_t directory_level = 0;
-	idx_t current_pos = prefix.size();
-	for (; current_pos < path.size(); current_pos++) {
-		idx_t dir_begin = current_pos;
-		// find either the end of the path or the directory separator
-		for (; path[current_pos] != '/' && current_pos < path.size(); current_pos++) {
-		}
-		idx_t path_length = current_pos - dir_begin;
-		if (path_length == 2 && path[dir_begin] == '.' && path[dir_begin + 1] == '.') {
-			// go up a directory
-			if (directory_level == 0) {
-				// we cannot go up past the prefix
-				return false;
-			}
-			--directory_level;
-		} else if (path_length > 0) {
-			directory_level++;
-		}
-	}
 	return true;
 }
 

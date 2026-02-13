@@ -50,34 +50,40 @@ namespace duckdb {
 
 void Binder::BindSchemaOrCatalog(CatalogEntryRetriever &retriever, string &catalog, string &schema) {
 	auto &context = retriever.GetContext();
-	if (catalog.empty() && !schema.empty()) {
-		// schema is specified - but catalog is not
-		// try searching for the catalog instead
-		auto &db_manager = DatabaseManager::Get(context);
-		auto database = db_manager.GetDatabase(context, schema);
-		if (database) {
-			// we have a database with this name
-			// check if there is a schema
-			auto &search_path = retriever.GetSearchPath();
-			auto catalog_names = search_path.GetCatalogsForSchema(schema);
-			if (catalog_names.empty()) {
-				catalog_names.push_back(DatabaseManager::GetDefaultDatabase(context));
-			}
-			for (auto &catalog_name : catalog_names) {
-				auto catalog_ptr = Catalog::GetCatalogEntry(retriever, catalog_name);
-				if (!catalog_ptr) {
-					continue;
-				}
-				if (catalog_ptr->CheckAmbiguousCatalogOrSchema(context, schema)) {
-					throw BinderException(
-					    "Ambiguous reference to catalog or schema \"%s\" - use a fully qualified path like \"%s.%s\"",
-					    schema, catalog_name, schema);
-				}
-			}
-			catalog = schema;
-			schema = string();
+	if (schema.empty()) {
+		return;
+	}
+	if (!catalog.empty()) {
+		return;
+	}
+	// schema is specified - but catalog is not
+	// try searching for the catalog instead
+	auto &db_manager = DatabaseManager::Get(context);
+	auto database = db_manager.GetDatabase(context, schema);
+	if (!database) {
+		//! No database by that name was found
+		return;
+	}
+	// we have a database with this name
+	// check if there is a schema
+	auto &search_path = retriever.GetSearchPath();
+	auto catalog_names = search_path.GetCatalogsForSchema(schema);
+	if (catalog_names.empty()) {
+		catalog_names.push_back(DatabaseManager::GetDefaultDatabase(context));
+	}
+	for (auto &catalog_name : catalog_names) {
+		auto catalog_ptr = Catalog::GetCatalogEntry(retriever, catalog_name);
+		if (!catalog_ptr) {
+			continue;
+		}
+		if (catalog_ptr->CheckAmbiguousCatalogOrSchema(context, schema)) {
+			throw BinderException(
+			    "Ambiguous reference to catalog or schema \"%s\" - use a fully qualified path like \"%s.%s\"", schema,
+			    catalog_name, schema);
 		}
 	}
+	catalog = schema;
+	schema = string();
 }
 
 void Binder::BindSchemaOrCatalog(ClientContext &context, string &catalog, string &schema) {
@@ -345,11 +351,7 @@ SchemaCatalogEntry &Binder::BindCreateFunctionInfo(CreateInfo &info) {
 			try {
 				dummy_binder->Bind(*query_node);
 			} catch (const std::exception &ex) {
-				// TODO: we would like to do something like "error = ErrorData(ex);" here,
-				//  but that breaks macro's like "create macro m(x) as table (from query_table(x));",
-				//  because dummy-binding these always throws an error instead of a ParameterNotResolvedException.
-				//  So, for now, we allow macro's with bind errors to be created.
-				//  Binding is still useful because we can create the dependencies.
+				error = ErrorData(ex);
 			}
 		}
 

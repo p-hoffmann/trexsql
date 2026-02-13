@@ -70,7 +70,7 @@ Binder::Binder(ClientContext &context, shared_ptr<Binder> parent_p, BinderType b
 	}
 }
 
-unique_ptr<BoundCTENode> Binder::BindMaterializedCTE(CommonTableExpressionMap &cte_map) {
+unique_ptr<BoundCTENode> Binder::BindMaterializedCTE(CommonTableExpressionMap &cte_map, unique_ptr<CTENode> &cte_root) {
 	// Extract materialized CTEs from cte_map
 	vector<unique_ptr<CTENode>> materialized_ctes;
 	for (auto &cte : cte_map.map) {
@@ -87,7 +87,6 @@ unique_ptr<BoundCTENode> Binder::BindMaterializedCTE(CommonTableExpressionMap &c
 		return nullptr;
 	}
 
-	unique_ptr<CTENode> cte_root = nullptr;
 	while (!materialized_ctes.empty()) {
 		unique_ptr<CTENode> node_result;
 		node_result = std::move(materialized_ctes.back());
@@ -110,7 +109,8 @@ unique_ptr<BoundCTENode> Binder::BindMaterializedCTE(CommonTableExpressionMap &c
 template <class T>
 BoundStatement Binder::BindWithCTE(T &statement) {
 	BoundStatement bound_statement;
-	auto bound_cte = BindMaterializedCTE(statement.template Cast<T>().cte_map);
+	unique_ptr<CTENode> cte_root;
+	auto bound_cte = BindMaterializedCTE(statement.template Cast<T>().cte_map, cte_root);
 	if (bound_cte) {
 		reference<BoundCTENode> tail_ref = *bound_cte;
 
@@ -440,7 +440,7 @@ void Binder::MoveCorrelatedExpressions(Binder &other) {
 	other.correlated_columns.clear();
 }
 
-void Binder::MergeCorrelatedColumns(vector<CorrelatedColumnInfo> &other) {
+void Binder::MergeCorrelatedColumns(CorrelatedColumns &other) {
 	for (idx_t i = 0; i < other.size(); i++) {
 		AddCorrelatedColumn(other[i]);
 	}
@@ -449,7 +449,7 @@ void Binder::MergeCorrelatedColumns(vector<CorrelatedColumnInfo> &other) {
 void Binder::AddCorrelatedColumn(const CorrelatedColumnInfo &info) {
 	// we only add correlated columns to the list if they are not already there
 	if (std::find(correlated_columns.begin(), correlated_columns.end(), info) == correlated_columns.end()) {
-		correlated_columns.push_back(info);
+		correlated_columns.AddColumn(info);
 	}
 }
 
@@ -469,7 +469,6 @@ optional_ptr<Binding> Binder::GetMatchingBinding(const string &catalog_name, con
                                                  const string &table_name, const string &column_name,
                                                  ErrorData &error) {
 	optional_ptr<Binding> binding;
-	D_ASSERT(!lambda_bindings);
 	if (macro_binding && table_name == macro_binding->GetAlias()) {
 		binding = optional_ptr<Binding>(macro_binding.get());
 	} else {
