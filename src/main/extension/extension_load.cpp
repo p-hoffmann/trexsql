@@ -413,14 +413,20 @@ bool ExtensionHelper::TryInitialLoad(DatabaseInstance &db, FileSystem &fs, const
 			local_path = fs.JoinPath(local_path, path_ele);
 		}
 		filename = fs.JoinPath(local_path, extension_name + ".duckdb_extension");
+		if (!fs.FileExists(filename)) {
+			auto trex_filename = fs.JoinPath(local_path, extension_name + ".trex");
+			if (fs.FileExists(trex_filename)) {
+				filename = trex_filename;
+			}
+		}
 #endif
 	} else {
 		direct_load = true;
 		filename = fs.ExpandPath(filename);
 	}
-	if (!StringUtil::EndsWith(filename, ".duckdb_extension")) {
+	if (!StringUtil::EndsWith(filename, ".duckdb_extension") && !StringUtil::EndsWith(filename, ".trex")) {
 		throw PermissionException(
-		    "DuckDB extensions are files ending with '.duckdb_extension', loading different "
+		    "Extensions must be files ending with '.duckdb_extension' or '.trex', loading different "
 		    "files is not possible, error while loading from '%s', consider 'INSTALL <path>; LOAD <name>;'",
 		    filename);
 	}

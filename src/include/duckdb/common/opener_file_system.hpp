@@ -31,7 +31,7 @@ public:
 	}
 
 	bool IsDuckDBExtensionName(const string &path) {
-		return StringUtil::EndsWith(path, ".duckdb_extension");
+		return StringUtil::EndsWith(path, ".duckdb_extension") || StringUtil::EndsWith(path, ".trex");
 	}
 
 	void Read(FileHandle &handle, void *buffer, int64_t nr_bytes, idx_t location) override {

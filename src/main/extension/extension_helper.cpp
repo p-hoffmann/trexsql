@@ -1,6 +1,7 @@
 #include "duckdb/main/extension_helper.hpp"
 
 #include "duckdb/common/file_system.hpp"
+#include "duckdb/common/printer.hpp"
 #include "duckdb/common/serializer/binary_deserializer.hpp"
 #include "duckdb/common/serializer/buffered_file_reader.hpp"
 #include "duckdb/common/string_util.hpp"
@@ -342,7 +343,7 @@ vector<ExtensionUpdateResult> ExtensionHelper::UpdateExtensions(ClientContext &c
 	// scan the install directory for installed extensions
 	auto ext_directory = ExtensionHelper::ExtensionDirectory(db, fs);
 	fs.ListFiles(ext_directory, [&](const string &path, bool is_directory) {
-		if (!StringUtil::EndsWith(path, ".duckdb_extension")) {
+		if (!StringUtil::EndsWith(path, ".duckdb_extension") && !StringUtil::EndsWith(path, ".trex")) {
 			return;
 		}
 
@@ -406,6 +407,79 @@ void ExtensionHelper::AutoLoadExtension(DatabaseInstance &db, const string &exte
 }
 
 //===--------------------------------------------------------------------===//
+// Install Trex Extensions from GitHub Releases
+//===--------------------------------------------------------------------===//
+void ExtensionHelper::InstallTrexExtensions(DatabaseInstance &db) {
+#ifndef DUCKDB_DISABLE_EXTENSION_LOAD
+	vector<string> default_extensions {"chdb", "circe", "hana_scan", "llama", "pgwire",
+	                                   "tpm",  "migration", "swarm", "flight", "etl"};
+
+	// Allow overriding the extension list via environment variable
+	vector<string> extensions;
+	const char *ext_env = getenv("TREX_EXTENSIONS");
+	if (ext_env && ext_env[0] != '\0') {
+		extensions = StringUtil::Split(string(ext_env), ",");
+		for (auto &ext : extensions) {
+			StringUtil::Trim(ext);
+		}
+	} else {
+		extensions = default_extensions;
+	}
+
+	// Get base URL from environment or use default
+	string base_url = "https://github.com/OHDSI/trexsql/releases/latest/download";
+	const char *url_env = getenv("TREX_RELEASE_URL");
+	if (url_env && url_env[0] != '\0') {
+		base_url = string(url_env);
+	}
+
+	auto &fs = FileSystem::GetFileSystem(db);
+	string ext_directory;
+	try {
+		ext_directory = ExtensionDirectory(db, fs);
+	} catch (...) {
+		return;
+	}
+
+	idx_t downloaded = 0;
+	idx_t skipped = 0;
+	idx_t failed = 0;
+
+	for (auto &ext_name : extensions) {
+		// Skip if already installed (.trex or .duckdb_extension)
+		auto trex_path = fs.JoinPath(ext_directory, ext_name + ".trex");
+		auto duckdb_path = fs.JoinPath(ext_directory, ext_name + ".duckdb_extension");
+		if (fs.FileExists(trex_path) || fs.FileExists(duckdb_path)) {
+			skipped++;
+			continue;
+		}
+
+		// Try to download from GitHub releases
+		string url = base_url + "/" + ext_name + ".trex";
+		try {
+			ExtensionInstallOptions options;
+			options.force_install = false;
+			InstallExtension(db, fs, url, options);
+			downloaded++;
+		} catch (std::exception &e) {
+			failed++;
+			Printer::RawPrint(OutputStream::STREAM_STDERR,
+			    StringUtil::Format("Warning: Failed to download trex extension '%s': %s\n", ext_name, e.what()));
+		} catch (...) {
+			failed++;
+			Printer::RawPrint(OutputStream::STREAM_STDERR,
+			    StringUtil::Format("Warning: Failed to download trex extension '%s': unknown error\n", ext_name));
+		}
+	}
+
+	if (downloaded > 0 || failed > 0) {
+		Printer::RawPrint(OutputStream::STREAM_STDERR,
+		    StringUtil::Format("Trex extensions: %d downloaded, %d skipped, %d failed\n", downloaded, skipped, failed));
+	}
+#endif
+}
+
+//===--------------------------------------------------------------------===//
 // Load Statically Compiled Extension
 //===--------------------------------------------------------------------===//
 void ExtensionHelper::LoadAllExtensions(DuckDB &db) {
@@ -423,6 +497,9 @@ void ExtensionHelper::LoadAllExtensions(DuckDB &db) {
 		LoadExtensionInternal(db, ext, true);
 	}
 #endif
+
+	// Auto-install trex extensions from GitHub releases
+	InstallTrexExtensions(*db.instance);
 }
 
 ExtensionLoadResult ExtensionHelper::LoadExtension(DuckDB &db, const std::string &extension) {
