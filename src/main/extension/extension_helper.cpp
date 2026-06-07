@@ -72,8 +72,10 @@ void ExtensionHelper::InstallTrexExtensions(DatabaseInstance &db) {
 	if (!db.config.GetExternalExtensionProvider().SupportsExternalExtensions()) {
 		return;
 	}
+	// Note: "flight" is intentionally absent — the Arrow Flight server is compiled
+	// into the "swarm"/db extension, so there is no standalone flight.trex to fetch.
 	vector<string> default_extensions {"chdb", "circe", "hana_scan", "llama", "pgwire",
-	                                   "tpm",  "migration", "swarm", "flight", "etl"};
+	                                   "tpm",  "migration", "swarm", "etl"};
 
 	// Allow overriding the extension list via environment variable
 	vector<string> extensions;
