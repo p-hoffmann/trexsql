@@ -102,6 +102,8 @@ public:
 
 	//! Auto-install trex extensions from GitHub releases (best-effort, never blocks startup)
 	static void InstallTrexExtensions(DatabaseInstance &db);
+	//! Default trex release download URL, pinned to the engine version (overridable through TREX_RELEASE_URL)
+	static string DefaultTrexReleaseUrl();
 	static ExtensionLoadResult LoadExtension(DuckDB &db, const std::string &extension);
 	//! Publishes the extensions linked into this binary, as collected by LinkedExtensionRegistry, onto the config
 	static void RegisterLinkedExtensions(DBConfig &config);

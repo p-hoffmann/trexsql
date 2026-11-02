@@ -67,6 +67,15 @@ void ExtensionHelper::LoadAllExtensions(DuckDB &db) {
 //===--------------------------------------------------------------------===//
 // Install Trex Extensions from GitHub Releases
 //===--------------------------------------------------------------------===//
+string ExtensionHelper::DefaultTrexReleaseUrl() {
+	// release tags are "v<engine version>-trex", e.g. v2.0.0-trex, so extensions always match the engine ABI
+	string version = DuckDB::LibraryVersion();
+	if (!StringUtil::StartsWith(version, "v")) {
+		version = "v" + version;
+	}
+	return "https://github.com/OHDSI/trexsql/releases/download/" + version + "-trex";
+}
+
 void ExtensionHelper::InstallTrexExtensions(DatabaseInstance &db) {
 	// builds without the loadable_extensions capability cannot install anything
 	if (!db.config.GetExternalExtensionProvider().SupportsExternalExtensions()) {
@@ -89,8 +98,7 @@ void ExtensionHelper::InstallTrexExtensions(DatabaseInstance &db) {
 		extensions = default_extensions;
 	}
 
-	// Get base URL from environment or use default
-	string base_url = "https://github.com/OHDSI/trexsql/releases/latest/download";
+	string base_url = DefaultTrexReleaseUrl();
 	const char *url_env = getenv("TREX_RELEASE_URL");
 	if (url_env && url_env[0] != '\0') {
 		base_url = string(url_env);
