@@ -421,7 +421,8 @@ unique_ptr<ExtensionInstallInfo> InstallExternalExtension(DatabaseInstance &db, 
                                                           const string &local_path, const string &extension,
                                                           ExtensionInstallOptions &options,
                                                           optional_ptr<ClientContext> context) {
-	auto extension_name = ExtensionHelper::ApplyExtensionAlias(fs.ExtractBaseName(extension));
+	auto extension_name = ExtensionHelper::ApplyExtensionAlias(
+	    options.install_name.empty() ? fs.ExtractBaseName(extension) : options.install_name);
 
 	if (ExtensionHelper::IsFullPath(extension) && options.repository) {
 		throw InvalidInputException("Cannot pass both a repository and a full path url");

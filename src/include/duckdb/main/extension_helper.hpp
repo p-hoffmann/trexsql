@@ -94,6 +94,8 @@ struct ExtensionInstallOptions {
 	bool use_etags = false;
 	//! Throw an error when installing an extension with a different origin than the one that is installed
 	bool throw_on_origin_mismatch = false;
+	//! Install under this name instead of the one derived from the path/url (e.g. platform-suffixed release assets)
+	string install_name;
 };
 
 class ExtensionHelper {
