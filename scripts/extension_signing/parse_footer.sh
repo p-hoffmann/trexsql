@@ -6,15 +6,14 @@
 #   Offset 0-255:   Metadata (8 fields x 32 bytes each)
 #   Offset 256-511: RSA Signature (256 bytes)
 #
-# Metadata Fields (32 bytes each, stored in reverse order from end):
-#   Field 7 (offset 0):   Magic value ("4\0...")
-#   Field 6 (offset 32):  Platform (e.g., "linux_amd64")
-#   Field 5 (offset 64):  DuckDB version (e.g., "v1.1.0")
-#   Field 4 (offset 96):  Extension version
-#   Field 3 (offset 128): ABI type ("CPP", "C_STRUCT", etc.)
-#   Field 2 (offset 160): Reserved
-#   Field 1 (offset 192): Reserved
-#   Field 0 (offset 224): Reserved
+# Metadata Fields (32 bytes each, stored in reverse order, see
+# ExtensionHelper::ParseExtensionMetaData):
+#   offset 0-95:  Reserved
+#   offset 96:    ABI type ("CPP", "C_STRUCT", etc.)
+#   offset 128:   Extension version
+#   offset 160:   DuckDB version (e.g., "v2.0.0"), or C API version for C_STRUCT
+#   offset 192:   Platform (e.g., "linux_amd64")
+#   offset 224:   Magic value ("4\0...")
 
 set -e
 
@@ -24,10 +23,10 @@ if [[ -z "${SCRIPT_DIR:-}" ]]; then
     source "${SCRIPT_DIR}/common.sh"
 fi
 
-readonly FOOTER_SIZE=512
-readonly SIGNATURE_SIZE=256
-readonly METADATA_SIZE=256
-readonly FIELD_SIZE=32
+[[ -v FOOTER_SIZE ]] || readonly FOOTER_SIZE=512
+[[ -v SIGNATURE_SIZE ]] || readonly SIGNATURE_SIZE=256
+[[ -v METADATA_SIZE ]] || readonly METADATA_SIZE=256
+[[ -v FIELD_SIZE ]] || readonly FIELD_SIZE=32
 
 # Read a null-terminated string from a specific offset in the footer
 # Args:
@@ -69,31 +68,31 @@ read_footer_bytes() {
 # Get extension magic value
 get_magic() {
     local extfile="$1"
-    read_footer_field "$extfile" 0
+    read_footer_field "$extfile" 224
 }
 
 # Get extension platform
 get_platform() {
     local extfile="$1"
-    read_footer_field "$extfile" 32
+    read_footer_field "$extfile" 192
 }
 
 # Get DuckDB version
 get_duckdb_version() {
     local extfile="$1"
-    read_footer_field "$extfile" 64
+    read_footer_field "$extfile" 160
 }
 
 # Get extension version
 get_extension_version() {
     local extfile="$1"
-    read_footer_field "$extfile" 96
+    read_footer_field "$extfile" 128
 }
 
 # Get ABI type
 get_abi_type() {
     local extfile="$1"
-    read_footer_field "$extfile" 128
+    read_footer_field "$extfile" 96
 }
 
 # Get signature bytes (256 bytes)

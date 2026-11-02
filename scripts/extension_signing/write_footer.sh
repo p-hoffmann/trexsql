@@ -14,9 +14,9 @@ if [[ -z "${SCRIPT_DIR:-}" ]]; then
     source "${SCRIPT_DIR}/common.sh"
 fi
 
-readonly FOOTER_SIZE=512
-readonly SIGNATURE_SIZE=256
-readonly METADATA_SIZE=256
+[[ -v FOOTER_SIZE ]] || readonly FOOTER_SIZE=512
+[[ -v SIGNATURE_SIZE ]] || readonly SIGNATURE_SIZE=256
+[[ -v METADATA_SIZE ]] || readonly METADATA_SIZE=256
 
 # Write signature to extension file
 # Args:

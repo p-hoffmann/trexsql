@@ -1,0 +1,45 @@
+# name: test/trex/trex_extension.test
+# description: .trex extensions, custom signing keys and best-effort trex auto-install
+# group: [trex]
+
+# Fixtures come from test/trex/run_trex_tests.sh. The runner opens databases with
+# load_extensions=false, so the auto-install-on-startup check lives in that script
+require-env TREX_FIXTURES
+
+require notmingw
+
+require skip_reload
+
+# the runner allows unsigned extensions; production does not
+statement ok
+SET allow_unsigned_extensions=false;
+
+statement error
+LOAD '{TREX_FIXTURES}/unsigned/loadable_extension_demo.trex';
+----
+<REGEX>:.*signature.*
+
+statement ok
+LOAD '{TREX_FIXTURES}/signed/loadable_extension_demo.trex';
+
+query I
+QUACK QUACK
+----
+QUACK
+QUACK
+
+statement ok
+SET extension_directory='{TEST_DIR}/trex_ext';
+
+statement error
+INSTALL '{TREX_FIXTURES}/unsigned/loadable_extension_demo.trex';
+----
+<REGEX>:.*signature.*
+
+statement ok
+INSTALL '{TREX_FIXTURES}/signed/loadable_extension_demo.trex';
+
+query I
+SELECT install_path LIKE '%loadable_extension_demo.trex' FROM duckdb_extensions() WHERE extension_name = 'loadable_extension_demo';
+----
+true

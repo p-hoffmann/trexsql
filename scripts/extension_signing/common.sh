@@ -183,8 +183,8 @@ validate_extension() {
         return $EXIT_INVALID_EXTENSION
     fi
 
-    # Check magic value (should be '4' at offset filesize-512)
-    local magic_offset=$((filesize - 512))
+    # Check magic value: "4" in the last metadata field (offset filesize-512+224)
+    local magic_offset=$((filesize - 512 + 224))
     local magic
     magic=$(dd if="$extfile" bs=1 skip=$magic_offset count=1 2>/dev/null | xxd -p)
 

@@ -16,8 +16,8 @@ if [[ -z "${SCRIPT_DIR:-}" ]]; then
     source "${SCRIPT_DIR}/common.sh"
 fi
 
-readonly CHUNK_SIZE=$((1024 * 1024))  # 1MB
-readonly SIGNATURE_SIZE=256
+[[ -v CHUNK_SIZE ]] || readonly CHUNK_SIZE=$((1024 * 1024))  # 1MB
+[[ -v SIGNATURE_SIZE ]] || readonly SIGNATURE_SIZE=256
 
 # Compute two-level hash of extension file
 # Args:
