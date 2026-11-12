@@ -1,0 +1,739 @@
+module: storage extension
+#
+# A storage extension makes `ATTACH '<path>' AS <name> (TYPE <type>)` produce a read-only catalog whose schemas and
+# tables are served by callbacks: the canonical shape of a remote-database connector. DuckDB owns the catalog, its
+# caching and its read-only enforcement; the extension only answers four questions:
+#
+# - attach: is this path usable, and what per-database state does it need? (`[[storage_attach_info_set_catalog_data]]`)
+# - list schemas: which schemas does the database have?
+# - list tables: which tables does one schema have?
+# - bind table: which table function reads one table, and with which arguments?
+#
+# Every answer is cached for as long as the database stays attached: each callback runs at most once per attached
+# database and name, and a DETACH followed by a new ATTACH starts over. A table is bound lazily, on first use: its
+# columns are taken from `[[storage_bind_info_add_column]]` when the callback declares them, and from binding the
+# named table function otherwise. Each scan of the table binds the function again, so its bind callback sees the
+# query's own context; the result must keep the columns the table was first bound with.
+#
+# The catalog is read-only: CREATE, DROP, ALTER, INSERT, UPDATE and DELETE against it fail.
+
+#-----------------------------------------------------------------------------------------------------------------------
+# Handles
+#-----------------------------------------------------------------------------------------------------------------------
+handles:
+  storage_extension:
+    description: |
+      An owned opaque handle to a storage extension being built. Created with `[[storage_extension_create]]`,
+      configured with the `storage_extension_set_*` functions, made available with
+      `[[instance_register_storage_extension]]` or `[[extension_register_storage_extension]]`, and destroyed with
+      `[[storage_extension_destroy]]`.
+
+  storage_attach_info:
+    description: |
+      A borrowed opaque handle to the ATTACH being served, passed to the attach callback. Valid only for the duration
+      of the callback.
+
+  storage_list_info:
+    description: |
+      A borrowed opaque handle passed to the list-schemas and list-tables callbacks, through which they report names.
+      Valid only for the duration of the callback.
+
+  storage_bind_info:
+    description: |
+      A borrowed opaque handle passed to the bind-table callback, through which it names the table function that
+      reads the table. Valid only for the duration of the callback.
+
+#-----------------------------------------------------------------------------------------------------------------------
+# Callbacks
+#-----------------------------------------------------------------------------------------------------------------------
+callbacks:
+  storage_attach_callback:
+    description: |
+      Serves an ATTACH. Inspect the path and options, connect or validate as needed, and store per-database state
+      with `[[storage_attach_info_set_catalog_data]]`. Report an error through `err` to fail the ATTACH.
+    parameters:
+      info:
+        type: storage_attach_info
+        description: Borrowed handle to the ATTACH being served.
+      context:
+        type: context
+        description: Borrowed handle to the context of the ATTACH statement.
+      err:
+        type: error_info
+        indirection: 1
+        description: Borrowed error info handle to use to report errors that occur during the callback.
+    return_type: void
+
+  storage_list_callback:
+    description: |
+      Lists the schemas of an attached database, or the tables of one of its schemas, by calling
+      `[[storage_list_info_add_name]]` once per name. Report an error through `err` to fail the statement that needed
+      the list; nothing is cached then, and the next statement asks again.
+    parameters:
+      info:
+        type: storage_list_info
+        description: Borrowed handle to report names through.
+      context:
+        type: context
+        description: Borrowed handle to the context of the statement that needed the list.
+      err:
+        type: error_info
+        indirection: 1
+        description: Borrowed error info handle to use to report errors that occur during the callback.
+    return_type: void
+
+  storage_bind_callback:
+    description: |
+      Names the table function that reads one listed table, via `[[storage_bind_info_set_function_name]]` and its
+      arguments, and optionally declares the table's columns. Returning without naming a function makes the table
+      unknown. Report an error through `err` to fail the statement that needed the table.
+    parameters:
+      info:
+        type: storage_bind_info
+        description: Borrowed handle to the table being bound.
+      context:
+        type: context
+        description: Borrowed handle to the context of the statement that needed the table.
+      err:
+        type: error_info
+        indirection: 1
+        description: Borrowed error info handle to use to report errors that occur during the callback.
+    return_type: void
+
+#-----------------------------------------------------------------------------------------------------------------------
+# Functions
+#-----------------------------------------------------------------------------------------------------------------------
+functions:
+  #---------------------------------------------------------------------------------------------------------------------
+  # Constructors
+  #---------------------------------------------------------------------------------------------------------------------
+  storage_extension_create:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: |
+      Creates a new storage extension through a factory.
+
+      Configure it with `[[storage_extension_set_attach]]`, `[[storage_extension_set_list_schemas]]`,
+      `[[storage_extension_set_list_tables]]` and `[[storage_extension_set_bind_table]]`, all four of which are
+      required, then register it. The caller owns the returned handle and must destroy it with
+      `[[storage_extension_destroy]]`, also after registration. It can only be registered on the database the factory
+      belongs to.
+    role: constructor
+    belongs_to: storage_extension
+    parameters:
+      factory:
+        type: factory
+        description: The factory to create the storage extension through.
+      storage:
+        type: storage_extension
+        indirection: 1
+        kind: OUT
+        description: On success, receives the newly created storage extension. Owned by the caller.
+      err:
+        type: error_info
+        indirection: 1
+        description: Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`.
+    return_type: ERROR
+
+  #---------------------------------------------------------------------------------------------------------------------
+  # Properties
+  #---------------------------------------------------------------------------------------------------------------------
+  storage_extension_set_attach:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: Sets the callback that serves ATTACH.
+    parameters:
+      storage:
+        type: storage_extension
+        description: The storage extension.
+      callback:
+        type: storage_attach_callback
+        description: The callback to set.
+      err:
+        type: error_info
+        indirection: 1
+        description: Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`.
+    return_type: ERROR
+
+  storage_extension_set_list_schemas:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: Sets the callback that lists the schemas of an attached database.
+    parameters:
+      storage:
+        type: storage_extension
+        description: The storage extension.
+      callback:
+        type: storage_list_callback
+        description: The callback to set.
+      err:
+        type: error_info
+        indirection: 1
+        description: Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`.
+    return_type: ERROR
+
+  storage_extension_set_list_tables:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: |
+      Sets the callback that lists the tables of one schema. The schema is read with
+      `[[storage_list_info_get_schema_name]]`.
+    parameters:
+      storage:
+        type: storage_extension
+        description: The storage extension.
+      callback:
+        type: storage_list_callback
+        description: The callback to set.
+      err:
+        type: error_info
+        indirection: 1
+        description: Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`.
+    return_type: ERROR
+
+  storage_extension_set_bind_table:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: Sets the callback that names the table function reading one table.
+    parameters:
+      storage:
+        type: storage_extension
+        description: The storage extension.
+      callback:
+        type: storage_bind_callback
+        description: The callback to set.
+      err:
+        type: error_info
+        indirection: 1
+        description: Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`.
+    return_type: ERROR
+
+  storage_extension_set_user_data:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: |
+      Sets arbitrary user data on the storage extension, retrievable from every callback. The opaque handle bundles
+      the pointer with an optional destructor, invoked when the instance is destroyed. Callbacks may run on several
+      connections at once, so the data must be safe to read concurrently.
+    parameters:
+      storage:
+        type: storage_extension
+        description: The storage extension.
+      data:
+        type: opaque
+        indirection: 1
+        description: Opaque handle bundling the user data pointer plus an optional destructor.
+      err:
+        type: error_info
+        indirection: 1
+        description: Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`.
+    return_type: ERROR
+
+  #---------------------------------------------------------------------------------------------------------------------
+  # Callback Functions: Attach
+  #---------------------------------------------------------------------------------------------------------------------
+  storage_attach_info_get_user_data:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: Retrieves the user data set via `[[storage_extension_set_user_data]]`.
+    parameters:
+      info:
+        type: storage_attach_info
+        description: The info handle.
+      data:
+        type: void
+        indirection: 2
+        kind: OUT
+        description: Receives the user data pointer, or null if none was set.
+      err:
+        type: error_info
+        indirection: 1
+        description: Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`.
+    return_type: ERROR
+
+  storage_attach_info_get_name:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: Retrieves the name the database is being attached as.
+    parameters:
+      info:
+        type: storage_attach_info
+        description: The info handle.
+      name:
+        type: identifier
+        indirection: 1
+        kind: OUT_BORROW
+        description: Receives a borrowed view of the name. Valid for the duration of the callback.
+      err:
+        type: error_info
+        indirection: 1
+        description: Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`.
+    return_type: ERROR
+
+  storage_attach_info_get_path:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: |
+      Retrieves the path being attached: the string literal of the ATTACH statement, with a leading `<type>:` prefix
+      already stripped when the type was selected through it.
+    parameters:
+      info:
+        type: storage_attach_info
+        description: The info handle.
+      path:
+        type: str
+        indirection: 1
+        kind: OUT_BORROW
+        description: Receives a borrowed view of the path. Valid for the duration of the callback.
+      err:
+        type: error_info
+        indirection: 1
+        description: Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`.
+    return_type: ERROR
+
+  storage_attach_info_get_option_count:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: |
+      Retrieves the number of ATTACH options passed on to the storage extension: every `(KEY value)` entry other than
+      the ones DuckDB consumes itself, such as TYPE and READ_ONLY.
+    parameters:
+      info:
+        type: storage_attach_info
+        description: The info handle.
+      count:
+        type: idx
+        indirection: 1
+        kind: OUT
+        description: Receives the number of options.
+      err:
+        type: error_info
+        indirection: 1
+        description: Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`.
+    return_type: ERROR
+
+  storage_attach_info_get_option_name:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: |
+      Retrieves the name of one ATTACH option, lowercased. Options are ordered by name. An out-of-range index results
+      in an error.
+    parameters:
+      info:
+        type: storage_attach_info
+        description: The info handle.
+      index:
+        type: idx
+        description: The index of the option, below `[[storage_attach_info_get_option_count]]`.
+      name:
+        type: identifier
+        indirection: 1
+        kind: OUT_BORROW
+        description: Receives a borrowed view of the option name. Valid for the duration of the callback.
+      err:
+        type: error_info
+        indirection: 1
+        description: Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`.
+    return_type: ERROR
+
+  storage_attach_info_get_option_value:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: |
+      Retrieves the value of one ATTACH option, as written in the statement. Options are ordered by name. An
+      out-of-range index results in an error.
+    parameters:
+      info:
+        type: storage_attach_info
+        description: The info handle.
+      index:
+        type: idx
+        description: The index of the option, below `[[storage_attach_info_get_option_count]]`.
+      value:
+        type: value
+        indirection: 1
+        kind: OUT
+        description: Receives the option value. Owned by the caller; destroy via `[[value_destroy]]`.
+      err:
+        type: error_info
+        indirection: 1
+        description: Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`.
+    return_type: ERROR
+
+  storage_attach_info_set_catalog_data:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: |
+      Stores per-database state, retrievable from the list and bind callbacks of this database. The opaque handle
+      bundles the pointer with an optional destructor, invoked when the database is detached or the instance is
+      destroyed. The callbacks may run on several connections at once, so the data must be safe to read concurrently.
+    parameters:
+      info:
+        type: storage_attach_info
+        description: The info handle.
+      data:
+        type: opaque
+        indirection: 1
+        description: Opaque handle bundling the state pointer plus an optional destructor.
+      err:
+        type: error_info
+        indirection: 1
+        description: Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`.
+    return_type: ERROR
+
+  storage_attach_info_set_default_schema:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: |
+      Sets the schema a two-part `<database>.<table>` name and `USE <database>` resolve to. Without one, the default
+      schema is `main`. The name is borrowed and copied.
+    parameters:
+      info:
+        type: storage_attach_info
+        description: The info handle.
+      schema:
+        type: identifier
+        indirection: 1
+        const: true
+        kind: IN
+        description: The default schema. Borrowed and copied.
+      err:
+        type: error_info
+        indirection: 1
+        description: Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`.
+    return_type: ERROR
+
+  #---------------------------------------------------------------------------------------------------------------------
+  # Callback Functions: List
+  #---------------------------------------------------------------------------------------------------------------------
+  storage_list_info_get_user_data:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: Retrieves the user data set via `[[storage_extension_set_user_data]]`.
+    parameters:
+      info:
+        type: storage_list_info
+        description: The info handle.
+      data:
+        type: void
+        indirection: 2
+        kind: OUT
+        description: Receives the user data pointer, or null if none was set.
+      err:
+        type: error_info
+        indirection: 1
+        description: Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`.
+    return_type: ERROR
+
+  storage_list_info_get_catalog_data:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: Retrieves the per-database state set via `[[storage_attach_info_set_catalog_data]]`.
+    parameters:
+      info:
+        type: storage_list_info
+        description: The info handle.
+      data:
+        type: void
+        indirection: 2
+        kind: OUT
+        description: Receives the state pointer, or null if none was set.
+      err:
+        type: error_info
+        indirection: 1
+        description: Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`.
+    return_type: ERROR
+
+  storage_list_info_get_schema_name:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: |
+      Retrieves the schema whose tables are being listed, with the casing the list-schemas callback reported. Only
+      valid in the list-tables callback; in the list-schemas callback it results in an error.
+    parameters:
+      info:
+        type: storage_list_info
+        description: The info handle.
+      schema:
+        type: identifier
+        indirection: 1
+        kind: OUT_BORROW
+        description: Receives a borrowed view of the schema name. Valid for the duration of the callback.
+      err:
+        type: error_info
+        indirection: 1
+        description: Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`.
+    return_type: ERROR
+
+  storage_list_info_add_name:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: |
+      Reports one schema (from the list-schemas callback) or one table (from the list-tables callback). Names are
+      matched case-insensitively, as SQL identifiers are; a name reported twice, ignoring case, is kept once. The name
+      is borrowed and copied and must not be empty.
+    parameters:
+      info:
+        type: storage_list_info
+        description: The info handle.
+      name:
+        type: identifier
+        indirection: 1
+        const: true
+        kind: IN
+        description: The schema or table name. Borrowed and copied.
+      err:
+        type: error_info
+        indirection: 1
+        description: Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`.
+    return_type: ERROR
+
+  #---------------------------------------------------------------------------------------------------------------------
+  # Callback Functions: Bind
+  #---------------------------------------------------------------------------------------------------------------------
+  storage_bind_info_get_user_data:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: Retrieves the user data set via `[[storage_extension_set_user_data]]`.
+    parameters:
+      info:
+        type: storage_bind_info
+        description: The info handle.
+      data:
+        type: void
+        indirection: 2
+        kind: OUT
+        description: Receives the user data pointer, or null if none was set.
+      err:
+        type: error_info
+        indirection: 1
+        description: Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`.
+    return_type: ERROR
+
+  storage_bind_info_get_catalog_data:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: Retrieves the per-database state set via `[[storage_attach_info_set_catalog_data]]`.
+    parameters:
+      info:
+        type: storage_bind_info
+        description: The info handle.
+      data:
+        type: void
+        indirection: 2
+        kind: OUT
+        description: Receives the state pointer, or null if none was set.
+      err:
+        type: error_info
+        indirection: 1
+        description: Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`.
+    return_type: ERROR
+
+  storage_bind_info_get_schema_name:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: Retrieves the schema of the table being bound, with the casing the list-schemas callback reported.
+    parameters:
+      info:
+        type: storage_bind_info
+        description: The info handle.
+      schema:
+        type: identifier
+        indirection: 1
+        kind: OUT_BORROW
+        description: Receives a borrowed view of the schema name. Valid for the duration of the callback.
+      err:
+        type: error_info
+        indirection: 1
+        description: Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`.
+    return_type: ERROR
+
+  storage_bind_info_get_table_name:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: Retrieves the name of the table being bound, with the casing the list-tables callback reported.
+    parameters:
+      info:
+        type: storage_bind_info
+        description: The info handle.
+      table:
+        type: identifier
+        indirection: 1
+        kind: OUT_BORROW
+        description: Receives a borrowed view of the table name. Valid for the duration of the callback.
+      err:
+        type: error_info
+        indirection: 1
+        description: Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`.
+    return_type: ERROR
+
+  storage_bind_info_set_function_name:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: |
+      Names the table function that reads the table. Arguments are added with `[[storage_bind_info_add_argument]]`
+      and `[[storage_bind_info_add_named_argument]]`. The name is borrowed and copied and resolved as it would be in
+      SQL; an unknown function fails when the table is first bound. The function must be a plain table function: one
+      that binds to a single scan, not a table macro or a function that rewrites itself into a query. Calling this
+      again replaces the name and keeps the arguments added so far.
+    parameters:
+      info:
+        type: storage_bind_info
+        description: The info handle.
+      name:
+        type: qname
+        description: The table function. Borrowed and copied.
+      err:
+        type: error_info
+        indirection: 1
+        description: Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`.
+    return_type: ERROR
+
+  storage_bind_info_add_argument:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: |
+      Appends a positional argument to the table function. The value is borrowed and copied. Requires
+      `[[storage_bind_info_set_function_name]]` to have been called first.
+    parameters:
+      info:
+        type: storage_bind_info
+        description: The info handle.
+      value:
+        type: value
+        description: The argument value. Borrowed and copied.
+      err:
+        type: error_info
+        indirection: 1
+        description: Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`.
+    return_type: ERROR
+
+  storage_bind_info_add_named_argument:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: |
+      Appends a named argument to the table function, as `name := value` would. The name and the value are borrowed
+      and copied. Requires `[[storage_bind_info_set_function_name]]` to have been called first.
+    parameters:
+      info:
+        type: storage_bind_info
+        description: The info handle.
+      name:
+        type: identifier
+        indirection: 1
+        const: true
+        kind: IN
+        description: The parameter name. Borrowed and copied.
+      value:
+        type: value
+        description: The argument value. Borrowed and copied.
+      err:
+        type: error_info
+        indirection: 1
+        description: Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`.
+    return_type: ERROR
+
+  storage_bind_info_add_column:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: |
+      Declares the next column of the table. Optional: when no column is declared, the columns are those the table
+      function binds to. When columns are declared, they must match, in order and type, the columns the function binds
+      to, or scanning the table fails. Declaring them saves binding the function just to describe the table, which is
+      what listing every table of a database (e.g. `SHOW ALL TABLES`) otherwise does. The name and type are borrowed
+      and copied.
+    parameters:
+      info:
+        type: storage_bind_info
+        description: The info handle.
+      name:
+        type: identifier
+        indirection: 1
+        const: true
+        kind: IN
+        description: The column name. Borrowed and copied.
+      type:
+        type: logical_type
+        description: The column type. Borrowed and copied.
+      err:
+        type: error_info
+        indirection: 1
+        description: Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`.
+    return_type: ERROR
+
+  #---------------------------------------------------------------------------------------------------------------------
+  # Register
+  #---------------------------------------------------------------------------------------------------------------------
+  instance_register_storage_extension:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: |
+      Registers the storage extension under a type name, making `ATTACH ... (TYPE <name>)` and a `<name>:` path prefix
+      select it. The type name is matched case-insensitively. Registering a type name that is already taken results in
+      an error. Register before issuing ATTACH statements. All four callbacks must be set. The caller still owns the
+      handle after registration and must destroy it with `[[storage_extension_destroy]]`, which does not affect the
+      registered extension.
+    role: method
+    belongs_to: instance
+    parameters:
+      instance:
+        type: instance
+        description: The instance to register on.
+      name:
+        type: identifier
+        indirection: 1
+        const: true
+        kind: IN
+        description: The storage type name. Borrowed and copied.
+      storage:
+        type: storage_extension
+        description: The storage extension to register.
+      err:
+        type: error_info
+        indirection: 1
+        description: "Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`."
+    return_type: ERROR
+
+  extension_register_storage_extension:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: |
+      Registers the storage extension under a type name from an extension's load callback, making
+      `ATTACH ... (TYPE <name>)` and a `<name>:` path prefix select it. Otherwise identical to
+      `[[instance_register_storage_extension]]`.
+    role: method
+    belongs_to: extension
+    parameters:
+      extension:
+        type: extension
+        description: The loading extension.
+      name:
+        type: identifier
+        indirection: 1
+        const: true
+        kind: IN
+        description: The storage type name. Borrowed and copied.
+      storage:
+        type: storage_extension
+        description: The storage extension to register.
+      err:
+        type: error_info
+        indirection: 1
+        description: "Optional. On failure, receives an opaque info handle the caller must destroy via `[[error_info_destroy]]`."
+    return_type: ERROR
+
+  #---------------------------------------------------------------------------------------------------------------------
+  # Destroy
+  #---------------------------------------------------------------------------------------------------------------------
+  storage_extension_destroy:
+    lifecycle:
+      - [ "unstable", "v2.0.0", "2026-11-12" ]
+    description: |
+      Destroys the storage extension handle. Null-safe; the handle is set to null on return. Destroying the handle
+      after registration does not affect the registered extension.
+    parameters:
+      storage:
+        type: storage_extension
+        description: The storage extension to destroy.
+        indirection: 1
+    return_type: ERROR

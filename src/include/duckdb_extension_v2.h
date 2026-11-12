@@ -1496,6 +1496,73 @@ typedef struct {
 	(duckdb_v2_sql_statement_handle statement, const duckdb_v2_identifier_t *name,
 	 duckdb_v2_column_data_collection_handle collection, const duckdb_v2_identifier_t *column_names, idx_t column_count,
 	 duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_extension_register_storage_extension)
+	(duckdb_v2_extension_handle extension, const duckdb_v2_identifier_t *name,
+	 duckdb_v2_storage_extension_handle storage, duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_instance_register_storage_extension)
+	(duckdb_v2_instance_handle instance, const duckdb_v2_identifier_t *name, duckdb_v2_storage_extension_handle storage,
+	 duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_storage_attach_info_get_name)
+	(duckdb_v2_storage_attach_info_handle info, duckdb_v2_identifier_t *name, duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_storage_attach_info_get_option_count)
+	(duckdb_v2_storage_attach_info_handle info, idx_t *count, duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_storage_attach_info_get_option_name)
+	(duckdb_v2_storage_attach_info_handle info, idx_t index, duckdb_v2_identifier_t *name,
+	 duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_storage_attach_info_get_option_value)
+	(duckdb_v2_storage_attach_info_handle info, idx_t index, duckdb_v2_value_handle *value,
+	 duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_storage_attach_info_get_path)
+	(duckdb_v2_storage_attach_info_handle info, duckdb_v2_str *path, duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_storage_attach_info_get_user_data)
+	(duckdb_v2_storage_attach_info_handle info, void **data, duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_storage_attach_info_set_catalog_data)
+	(duckdb_v2_storage_attach_info_handle info, duckdb_v2_opaque *data, duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_storage_attach_info_set_default_schema)
+	(duckdb_v2_storage_attach_info_handle info, const duckdb_v2_identifier_t *schema, duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_storage_bind_info_add_argument)
+	(duckdb_v2_storage_bind_info_handle info, duckdb_v2_value_handle value, duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_storage_bind_info_add_column)
+	(duckdb_v2_storage_bind_info_handle info, const duckdb_v2_identifier_t *name, duckdb_v2_logical_type_handle type,
+	 duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_storage_bind_info_add_named_argument)
+	(duckdb_v2_storage_bind_info_handle info, const duckdb_v2_identifier_t *name, duckdb_v2_value_handle value,
+	 duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_storage_bind_info_get_catalog_data)
+	(duckdb_v2_storage_bind_info_handle info, void **data, duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_storage_bind_info_get_schema_name)
+	(duckdb_v2_storage_bind_info_handle info, duckdb_v2_identifier_t *schema, duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_storage_bind_info_get_table_name)
+	(duckdb_v2_storage_bind_info_handle info, duckdb_v2_identifier_t *table, duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_storage_bind_info_get_user_data)
+	(duckdb_v2_storage_bind_info_handle info, void **data, duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_storage_bind_info_set_function_name)
+	(duckdb_v2_storage_bind_info_handle info, duckdb_v2_qname_handle name, duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_storage_extension_create)
+	(duckdb_v2_factory_handle factory, duckdb_v2_storage_extension_handle *storage, duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR (*duckdb_v2_storage_extension_destroy)(duckdb_v2_storage_extension_handle *storage);
+	DUCKDB_V2_ERROR(*duckdb_v2_storage_extension_set_attach)
+	(duckdb_v2_storage_extension_handle storage, duckdb_v2_storage_attach_callback_fn callback,
+	 duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_storage_extension_set_bind_table)
+	(duckdb_v2_storage_extension_handle storage, duckdb_v2_storage_bind_callback_fn callback,
+	 duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_storage_extension_set_list_schemas)
+	(duckdb_v2_storage_extension_handle storage, duckdb_v2_storage_list_callback_fn callback,
+	 duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_storage_extension_set_list_tables)
+	(duckdb_v2_storage_extension_handle storage, duckdb_v2_storage_list_callback_fn callback,
+	 duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_storage_extension_set_user_data)
+	(duckdb_v2_storage_extension_handle storage, duckdb_v2_opaque *data, duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_storage_list_info_add_name)
+	(duckdb_v2_storage_list_info_handle info, const duckdb_v2_identifier_t *name, duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_storage_list_info_get_catalog_data)
+	(duckdb_v2_storage_list_info_handle info, void **data, duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_storage_list_info_get_schema_name)
+	(duckdb_v2_storage_list_info_handle info, duckdb_v2_identifier_t *schema, duckdb_v2_error_info_handle *err);
+	DUCKDB_V2_ERROR(*duckdb_v2_storage_list_info_get_user_data)
+	(duckdb_v2_storage_list_info_handle info, void **data, duckdb_v2_error_info_handle *err);
 #endif
 	// capigen:end appended
 } duckdb_ext_api_v2;
@@ -3444,6 +3511,93 @@ typedef struct {
 #endif
 #if DUCKDB_V2_API_ALLOW_UNSTABLE
 #define duckdb_v2_statement_add_collection duckdb_ext_api.duckdb_v2_statement_add_collection
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_extension_register_storage_extension duckdb_ext_api.duckdb_v2_extension_register_storage_extension
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_instance_register_storage_extension duckdb_ext_api.duckdb_v2_instance_register_storage_extension
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_attach_info_get_name duckdb_ext_api.duckdb_v2_storage_attach_info_get_name
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_attach_info_get_option_count duckdb_ext_api.duckdb_v2_storage_attach_info_get_option_count
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_attach_info_get_option_name duckdb_ext_api.duckdb_v2_storage_attach_info_get_option_name
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_attach_info_get_option_value duckdb_ext_api.duckdb_v2_storage_attach_info_get_option_value
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_attach_info_get_path duckdb_ext_api.duckdb_v2_storage_attach_info_get_path
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_attach_info_get_user_data duckdb_ext_api.duckdb_v2_storage_attach_info_get_user_data
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_attach_info_set_catalog_data duckdb_ext_api.duckdb_v2_storage_attach_info_set_catalog_data
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_attach_info_set_default_schema duckdb_ext_api.duckdb_v2_storage_attach_info_set_default_schema
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_bind_info_add_argument duckdb_ext_api.duckdb_v2_storage_bind_info_add_argument
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_bind_info_add_column duckdb_ext_api.duckdb_v2_storage_bind_info_add_column
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_bind_info_add_named_argument duckdb_ext_api.duckdb_v2_storage_bind_info_add_named_argument
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_bind_info_get_catalog_data duckdb_ext_api.duckdb_v2_storage_bind_info_get_catalog_data
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_bind_info_get_schema_name duckdb_ext_api.duckdb_v2_storage_bind_info_get_schema_name
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_bind_info_get_table_name duckdb_ext_api.duckdb_v2_storage_bind_info_get_table_name
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_bind_info_get_user_data duckdb_ext_api.duckdb_v2_storage_bind_info_get_user_data
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_bind_info_set_function_name duckdb_ext_api.duckdb_v2_storage_bind_info_set_function_name
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_extension_create duckdb_ext_api.duckdb_v2_storage_extension_create
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_extension_destroy duckdb_ext_api.duckdb_v2_storage_extension_destroy
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_extension_set_attach duckdb_ext_api.duckdb_v2_storage_extension_set_attach
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_extension_set_bind_table duckdb_ext_api.duckdb_v2_storage_extension_set_bind_table
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_extension_set_list_schemas duckdb_ext_api.duckdb_v2_storage_extension_set_list_schemas
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_extension_set_list_tables duckdb_ext_api.duckdb_v2_storage_extension_set_list_tables
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_extension_set_user_data duckdb_ext_api.duckdb_v2_storage_extension_set_user_data
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_list_info_add_name duckdb_ext_api.duckdb_v2_storage_list_info_add_name
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_list_info_get_catalog_data duckdb_ext_api.duckdb_v2_storage_list_info_get_catalog_data
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_list_info_get_schema_name duckdb_ext_api.duckdb_v2_storage_list_info_get_schema_name
+#endif
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+#define duckdb_v2_storage_list_info_get_user_data duckdb_ext_api.duckdb_v2_storage_list_info_get_user_data
 #endif
 // capigen:end appended
 #endif // DUCKDB_BUILD_STATIC_EXTENSION
