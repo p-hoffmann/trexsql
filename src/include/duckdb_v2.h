@@ -11250,6 +11250,641 @@ DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_statement_iterator_destroy(duckdb_v2_stat
 /* --- Struct definitions for sql_statement --- */
 
 /* ============================================================================
+ * MODULE: storage extension
+ * ============================================================================ */
+
+/* --- Enums for storage extension --- */
+
+/* --- Struct forward declarations for storage extension --- */
+
+/* --- Types for storage extension --- */
+
+/*!
+ * An owned opaque handle to a storage extension being built. Created with `duckdb_v2_storage_extension_create()`,
+ * configured with the `storage_extension_set_*` functions, made available with
+ * `duckdb_v2_instance_register_storage_extension()` or `duckdb_v2_extension_register_storage_extension()`, and
+ * destroyed with `duckdb_v2_storage_extension_destroy()`.
+ */
+typedef struct _duckdb_v2_storage_extension {
+	void *internal_ptr;
+} * duckdb_v2_storage_extension_handle;
+
+/*!
+ * A borrowed opaque handle to the ATTACH being served, passed to the attach callback. Valid only for the duration of
+ * the callback.
+ */
+typedef struct _duckdb_v2_storage_attach_info {
+	void *internal_ptr;
+} * duckdb_v2_storage_attach_info_handle;
+
+/*!
+ * A borrowed opaque handle passed to the list-schemas and list-tables callbacks, through which they report names. Valid
+ * only for the duration of the callback.
+ */
+typedef struct _duckdb_v2_storage_list_info {
+	void *internal_ptr;
+} * duckdb_v2_storage_list_info_handle;
+
+/*!
+ * A borrowed opaque handle passed to the bind-table callback, through which it names the table function that reads the
+ * table. Valid only for the duration of the callback.
+ */
+typedef struct _duckdb_v2_storage_bind_info {
+	void *internal_ptr;
+} * duckdb_v2_storage_bind_info_handle;
+
+/* --- Constants for storage extension --- */
+
+/* --- Function pointer typedefs for storage extension --- */
+
+/*!
+ * Serves an ATTACH. Inspect the path and options, connect or validate as needed, and store per-database state with
+ * `duckdb_v2_storage_attach_info_set_catalog_data()`. Report an error through `err` to fail the ATTACH.
+ */
+typedef void (*duckdb_v2_storage_attach_callback_fn)(duckdb_v2_storage_attach_info_handle info,
+                                                     duckdb_v2_context_handle context,
+                                                     duckdb_v2_error_info_handle *err);
+
+/*!
+ * Lists the schemas of an attached database, or the tables of one of its schemas, by calling
+ * `duckdb_v2_storage_list_info_add_name()` once per name. Report an error through `err` to fail the statement that
+ * needed the list; nothing is cached then, and the next statement asks again.
+ */
+typedef void (*duckdb_v2_storage_list_callback_fn)(duckdb_v2_storage_list_info_handle info,
+                                                   duckdb_v2_context_handle context, duckdb_v2_error_info_handle *err);
+
+/*!
+ * Names the table function that reads one listed table, via `duckdb_v2_storage_bind_info_set_function_name()` and its
+ * arguments, and optionally declares the table's columns. Returning without naming a function makes the table unknown.
+ * Report an error through `err` to fail the statement that needed the table.
+ */
+typedef void (*duckdb_v2_storage_bind_callback_fn)(duckdb_v2_storage_bind_info_handle info,
+                                                   duckdb_v2_context_handle context, duckdb_v2_error_info_handle *err);
+
+/* --- Functions for storage extension --- */
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Creates a new storage extension through a factory.
+ *
+ * Configure it with `duckdb_v2_storage_extension_set_attach()`, `duckdb_v2_storage_extension_set_list_schemas()`,
+ * `duckdb_v2_storage_extension_set_list_tables()` and `duckdb_v2_storage_extension_set_bind_table()`, all four of which
+ * are required, then register it. The caller owns the returned handle and must destroy it with
+ * `duckdb_v2_storage_extension_destroy()`, also after registration. It can only be registered on the database the
+ * factory belongs to.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param factory The factory to create the storage extension through.
+ * @param storage On success, receives the newly created storage extension. Owned by the caller.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_extension_create(duckdb_v2_factory_handle factory,
+                                                                duckdb_v2_storage_extension_handle *storage,
+                                                                duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Sets the callback that serves ATTACH.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param storage The storage extension.
+ * @param callback The callback to set.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_extension_set_attach(duckdb_v2_storage_extension_handle storage,
+                                                                    duckdb_v2_storage_attach_callback_fn callback,
+                                                                    duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Sets the callback that lists the schemas of an attached database.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param storage The storage extension.
+ * @param callback The callback to set.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_extension_set_list_schemas(duckdb_v2_storage_extension_handle storage,
+                                                                          duckdb_v2_storage_list_callback_fn callback,
+                                                                          duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Sets the callback that lists the tables of one schema. The schema is read with
+ * `duckdb_v2_storage_list_info_get_schema_name()`.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param storage The storage extension.
+ * @param callback The callback to set.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_extension_set_list_tables(duckdb_v2_storage_extension_handle storage,
+                                                                         duckdb_v2_storage_list_callback_fn callback,
+                                                                         duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Sets the callback that names the table function reading one table.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param storage The storage extension.
+ * @param callback The callback to set.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_extension_set_bind_table(duckdb_v2_storage_extension_handle storage,
+                                                                        duckdb_v2_storage_bind_callback_fn callback,
+                                                                        duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Sets arbitrary user data on the storage extension, retrievable from every callback. The opaque handle bundles the
+ * pointer with an optional destructor, invoked when the instance is destroyed. Callbacks may run on several connections
+ * at once, so the data must be safe to read concurrently.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param storage The storage extension.
+ * @param data Opaque handle bundling the user data pointer plus an optional destructor.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_extension_set_user_data(duckdb_v2_storage_extension_handle storage,
+                                                                       duckdb_v2_opaque *data,
+                                                                       duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Retrieves the user data set via `duckdb_v2_storage_extension_set_user_data()`.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param info The info handle.
+ * @param data Receives the user data pointer, or null if none was set.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_attach_info_get_user_data(duckdb_v2_storage_attach_info_handle info,
+                                                                         void **data, duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Retrieves the name the database is being attached as.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param info The info handle.
+ * @param name Receives a borrowed view of the name. Valid for the duration of the callback.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_attach_info_get_name(duckdb_v2_storage_attach_info_handle info,
+                                                                    duckdb_v2_identifier_t *name,
+                                                                    duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Retrieves the path being attached: the string literal of the ATTACH statement, with a leading `<type>:` prefix
+ * already stripped when the type was selected through it.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param info The info handle.
+ * @param path Receives a borrowed view of the path. Valid for the duration of the callback.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_attach_info_get_path(duckdb_v2_storage_attach_info_handle info,
+                                                                    duckdb_v2_str *path,
+                                                                    duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Retrieves the number of ATTACH options passed on to the storage extension: every `(KEY value)` entry other than the
+ * ones DuckDB consumes itself, such as TYPE and READ_ONLY.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param info The info handle.
+ * @param count Receives the number of options.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_attach_info_get_option_count(duckdb_v2_storage_attach_info_handle info,
+                                                                            idx_t *count,
+                                                                            duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Retrieves the name of one ATTACH option, lowercased. Options are ordered by name. An out-of-range index results in an
+ * error.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param info The info handle.
+ * @param index The index of the option, below `duckdb_v2_storage_attach_info_get_option_count()`.
+ * @param name Receives a borrowed view of the option name. Valid for the duration of the callback.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_attach_info_get_option_name(duckdb_v2_storage_attach_info_handle info,
+                                                                           idx_t index, duckdb_v2_identifier_t *name,
+                                                                           duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Retrieves the value of one ATTACH option, as written in the statement. Options are ordered by name. An out-of-range
+ * index results in an error.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param info The info handle.
+ * @param index The index of the option, below `duckdb_v2_storage_attach_info_get_option_count()`.
+ * @param value Receives the option value. Owned by the caller; destroy via `duckdb_v2_value_destroy()`.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_attach_info_get_option_value(duckdb_v2_storage_attach_info_handle info,
+                                                                            idx_t index, duckdb_v2_value_handle *value,
+                                                                            duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Stores per-database state, retrievable from the list and bind callbacks of this database. The opaque handle bundles
+ * the pointer with an optional destructor, invoked when the database is detached or the instance is destroyed. The
+ * callbacks may run on several connections at once, so the data must be safe to read concurrently.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param info The info handle.
+ * @param data Opaque handle bundling the state pointer plus an optional destructor.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_attach_info_set_catalog_data(duckdb_v2_storage_attach_info_handle info,
+                                                                            duckdb_v2_opaque *data,
+                                                                            duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Sets the schema a two-part `<database>.<table>` name and `USE <database>` resolve to. Without one, the default schema
+ * is `main`. The name is borrowed and copied.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param info The info handle.
+ * @param schema The default schema. Borrowed and copied.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_attach_info_set_default_schema(duckdb_v2_storage_attach_info_handle info,
+                                                                              const duckdb_v2_identifier_t *schema,
+                                                                              duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Retrieves the user data set via `duckdb_v2_storage_extension_set_user_data()`.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param info The info handle.
+ * @param data Receives the user data pointer, or null if none was set.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_list_info_get_user_data(duckdb_v2_storage_list_info_handle info,
+                                                                       void **data, duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Retrieves the per-database state set via `duckdb_v2_storage_attach_info_set_catalog_data()`.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param info The info handle.
+ * @param data Receives the state pointer, or null if none was set.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_list_info_get_catalog_data(duckdb_v2_storage_list_info_handle info,
+                                                                          void **data,
+                                                                          duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Retrieves the schema whose tables are being listed, with the casing the list-schemas callback reported. Only valid in
+ * the list-tables callback; in the list-schemas callback it results in an error.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param info The info handle.
+ * @param schema Receives a borrowed view of the schema name. Valid for the duration of the callback.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_list_info_get_schema_name(duckdb_v2_storage_list_info_handle info,
+                                                                         duckdb_v2_identifier_t *schema,
+                                                                         duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Reports one schema (from the list-schemas callback) or one table (from the list-tables callback). Names are matched
+ * case-insensitively, as SQL identifiers are; a name reported twice, ignoring case, is kept once. The name is borrowed
+ * and copied and must not be empty.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param info The info handle.
+ * @param name The schema or table name. Borrowed and copied.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_list_info_add_name(duckdb_v2_storage_list_info_handle info,
+                                                                  const duckdb_v2_identifier_t *name,
+                                                                  duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Retrieves the user data set via `duckdb_v2_storage_extension_set_user_data()`.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param info The info handle.
+ * @param data Receives the user data pointer, or null if none was set.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_bind_info_get_user_data(duckdb_v2_storage_bind_info_handle info,
+                                                                       void **data, duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Retrieves the per-database state set via `duckdb_v2_storage_attach_info_set_catalog_data()`.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param info The info handle.
+ * @param data Receives the state pointer, or null if none was set.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_bind_info_get_catalog_data(duckdb_v2_storage_bind_info_handle info,
+                                                                          void **data,
+                                                                          duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Retrieves the schema of the table being bound, with the casing the list-schemas callback reported.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param info The info handle.
+ * @param schema Receives a borrowed view of the schema name. Valid for the duration of the callback.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_bind_info_get_schema_name(duckdb_v2_storage_bind_info_handle info,
+                                                                         duckdb_v2_identifier_t *schema,
+                                                                         duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Retrieves the name of the table being bound, with the casing the list-tables callback reported.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param info The info handle.
+ * @param table Receives a borrowed view of the table name. Valid for the duration of the callback.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_bind_info_get_table_name(duckdb_v2_storage_bind_info_handle info,
+                                                                        duckdb_v2_identifier_t *table,
+                                                                        duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Names the table function that reads the table. Arguments are added with `duckdb_v2_storage_bind_info_add_argument()`
+ * and `duckdb_v2_storage_bind_info_add_named_argument()`. The name is borrowed and copied and resolved as it would be
+ * in SQL; an unknown function fails when the table is first bound. The function must be a plain table function: one
+ * that binds to a single scan, not a table macro or a function that rewrites itself into a query. Calling this again
+ * replaces the name and keeps the arguments added so far.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param info The info handle.
+ * @param name The table function. Borrowed and copied.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_bind_info_set_function_name(duckdb_v2_storage_bind_info_handle info,
+                                                                           duckdb_v2_qname_handle name,
+                                                                           duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Appends a positional argument to the table function. The value is borrowed and copied. Requires
+ * `duckdb_v2_storage_bind_info_set_function_name()` to have been called first.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param info The info handle.
+ * @param value The argument value. Borrowed and copied.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_bind_info_add_argument(duckdb_v2_storage_bind_info_handle info,
+                                                                      duckdb_v2_value_handle value,
+                                                                      duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Appends a named argument to the table function, as `name := value` would. The name and the value are borrowed and
+ * copied. Requires `duckdb_v2_storage_bind_info_set_function_name()` to have been called first.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param info The info handle.
+ * @param name The parameter name. Borrowed and copied.
+ * @param value The argument value. Borrowed and copied.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_bind_info_add_named_argument(duckdb_v2_storage_bind_info_handle info,
+                                                                            const duckdb_v2_identifier_t *name,
+                                                                            duckdb_v2_value_handle value,
+                                                                            duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Declares the next column of the table. Optional: when no column is declared, the columns are those the table function
+ * binds to. When columns are declared, they must match, in order and type, the columns the function binds to, or
+ * scanning the table fails. Declaring them saves binding the function just to describe the table, which is what listing
+ * every table of a database (e.g. `SHOW ALL TABLES`) otherwise does. The name and type are borrowed and copied.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param info The info handle.
+ * @param name The column name. Borrowed and copied.
+ * @param type The column type. Borrowed and copied.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_bind_info_add_column(duckdb_v2_storage_bind_info_handle info,
+                                                                    const duckdb_v2_identifier_t *name,
+                                                                    duckdb_v2_logical_type_handle type,
+                                                                    duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Registers the storage extension under a type name, making `ATTACH ... (TYPE <name>)` and a `<name>:` path prefix
+ * select it. The type name is matched case-insensitively. Registering a type name that is already taken results in an
+ * error. Register before issuing ATTACH statements. All four callbacks must be set. The caller still owns the handle
+ * after registration and must destroy it with `duckdb_v2_storage_extension_destroy()`, which does not affect the
+ * registered extension.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param instance The instance to register on.
+ * @param name The storage type name. Borrowed and copied.
+ * @param storage The storage extension to register.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_instance_register_storage_extension(duckdb_v2_instance_handle instance,
+                                                                           const duckdb_v2_identifier_t *name,
+                                                                           duckdb_v2_storage_extension_handle storage,
+                                                                           duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Registers the storage extension under a type name from an extension's load callback, making `ATTACH ... (TYPE
+ * <name>)` and a `<name>:` path prefix select it. Otherwise identical to
+ * `duckdb_v2_instance_register_storage_extension()`.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param extension The loading extension.
+ * @param name The storage type name. Borrowed and copied.
+ * @param storage The storage extension to register.
+ * @param err Optional. On failure, receives an opaque info handle the caller must destroy via
+ * `duckdb_v2_error_info_destroy()`.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_extension_register_storage_extension(duckdb_v2_extension_handle extension,
+                                                                            const duckdb_v2_identifier_t *name,
+                                                                            duckdb_v2_storage_extension_handle storage,
+                                                                            duckdb_v2_error_info_handle *err);
+#endif
+
+#if DUCKDB_V2_API_ALLOW_UNSTABLE
+/*!
+ * Destroys the storage extension handle. Null-safe; the handle is set to null on return. Destroying the handle after
+ * registration does not affect the registered extension.
+ *
+ * history:
+ * - unstable: v2.0.0
+ *
+ * @param storage The storage extension to destroy.
+ * @return DUCKDB_V2_ERROR
+ */
+DUCKDB_C_API DUCKDB_V2_ERROR duckdb_v2_storage_extension_destroy(duckdb_v2_storage_extension_handle *storage);
+#endif
+
+/* --- Struct definitions for storage extension --- */
+
+/* ============================================================================
  * MODULE: vector
  * ============================================================================ */
 

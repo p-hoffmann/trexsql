@@ -5,6 +5,8 @@
 
 //! Defined by test/api/capi/v2/static_extension/cpp_api_static_demo.cpp, built as a static V2 C API extension.
 extern "C" void cpp_api_static_demo_init_c_api_v2(struct duckdb_v2_extension_input *input);
+//! Defined by test/api/capi/v2/static_extension/storage_static_demo.cpp.
+extern "C" void storage_static_demo_init_c_api_v2(struct duckdb_v2_extension_input *input);
 
 using namespace duckdb;
 
@@ -37,4 +39,18 @@ TEST_CASE("Test loading a statically linked V2 C API extension", "[capi_v2]") {
 
 	// Loading it a second time is a no-op rather than an error
 	db.LoadStaticCAPIExtensionV2("cpp_api_static_demo", cpp_api_static_demo_init_c_api_v2);
+}
+
+TEST_CASE("Test a V2 C API extension registering a storage type", "[capi_v2][storage_extension]") {
+	DuckDB db(nullptr);
+	Connection con(db);
+
+	REQUIRE_FAIL(con.Query("ATTACH '' AS d (TYPE storage_demo)"));
+	db.LoadStaticCAPIExtensionV2("storage_static_demo", storage_static_demo_init_c_api_v2);
+
+	REQUIRE_NO_FAIL(con.Query("ATTACH '' AS d (TYPE storage_demo)"));
+	auto result = con.Query("SELECT * FROM d.answers");
+	REQUIRE(CHECK_COLUMN(result, 0, {42, 42}));
+	auto type = con.Query("SELECT type FROM duckdb_databases() WHERE database_name = 'd'");
+	REQUIRE(CHECK_COLUMN(type, 0, {"storage_demo"}));
 }
